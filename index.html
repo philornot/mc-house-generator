@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft House Generator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: #2a2a2a;
+      padding: 1rem 2rem;
+      border-bottom: 2px solid #3a3a3a;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 320px;
+      background: #2a2a2a;
+      padding: 1.5rem;
+      overflow-y: auto;
+      border-right: 2px solid #3a3a3a;
+    }
+
+    .mode-selector {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 0.75rem;
+      background: #3a3a3a;
+      border: 2px solid #4a4a4a;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .mode-btn:hover {
+      background: #4a4a4a;
+    }
+
+    .mode-btn.active {
+      background: #4a9eff;
+      border-color: #4a9eff;
+    }
+
+    .control-group {
+      margin-bottom: 1.5rem;
+    }
+
+    .control-group h3 {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      color: #4a9eff;
+    }
+
+    .control {
+      margin-bottom: 1rem;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .control input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #3a3a3a;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #4a9eff;
+      cursor: pointer;
+    }
+
+    .control input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #4a9eff;
+      cursor: pointer;
+      border: none;
+    }
+
+    .control input[type="number"] {
+      width: 100%;
+      padding: 0.5rem;
+      background: #3a3a3a;
+      border: 1px solid #4a4a4a;
+      color: #fff;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .checkbox-control {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .checkbox-control input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .seed-input-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .seed-input-group input {
+      flex: 1;
+    }
+
+    .btn {
+      padding: 0.6rem 1rem;
+      background: #4a9eff;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      transition: background 0.2s;
+    }
+
+    .btn:hover {
+      background: #3a8eef;
+    }
+
+    .btn-secondary {
+      background: #3a3a3a;
+      border: 1px solid #4a4a4a;
+    }
+
+    .btn-secondary:hover {
+      background: #4a4a4a;
+    }
+
+    #stats {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #1a1a1a;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    #stats div {
+      margin-bottom: 0.3rem;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      background: #87ceeb;
+    }
+
+    .controls-info {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: #ccc;
+    }
+
+    .controls-info div {
+      margin-bottom: 0.3rem;
+    }
+
+    .controls-info div:last-child {
+      margin-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🏠 Minecraft House Generator</h1>
+      <p class="subtitle">Procedural house generation with 3D preview</p>
+    </header>
+
+    <div class="main-content">
+      <aside class="sidebar">
+        <div class="mode-selector">
+          <button id="parametric-mode" class="mode-btn active">Parametric</button>
+          <button id="random-mode" class="mode-btn">Random (Seeded)</button>
+        </div>
+
+        <div id="parametric-controls" class="control-group">
+          <h3>Dimensions</h3>
+
+          <div class="control">
+            <label>
+              <span>Width (X)</span>
+              <span id="width-value">8</span>
+            </label>
+            <input type="range" id="width" min="4" max="16" value="8">
+          </div>
+
+          <div class="control">
+            <label>
+              <span>Height (Y)</span>
+              <span id="height-value">4</span>
+            </label>
+            <input type="range" id="height" min="3" max="10" value="4">
+          </div>
+
+          <div class="control">
+            <label>
+              <span>Depth (Z)</span>
+              <span id="depth-value">6</span>
+            </label>
+            <input type="range" id="depth" min="4" max="16" value="6">
+          </div>
+
+          <h3>Features</h3>
+
+          <div class="control checkbox-control">
+            <input type="checkbox" id="windows" checked>
+            <label for="windows">Add Windows</label>
+          </div>
+
+          <div class="control checkbox-control">
+            <input type="checkbox" id="stairs" checked>
+            <label for="stairs">Add Stairs</label>
+          </div>
+        </div>
+
+        <div id="random-controls" class="control-group" style="display: none;">
+          <h3>Random Generation</h3>
+
+          <div class="control">
+            <label>
+              <span>Seed</span>
+            </label>
+            <div class="seed-input-group">
+              <input type="number" id="seed" value="0">
+              <button class="btn btn-secondary" id="random-seed">🎲</button>
+            </div>
+          </div>
+
+          <button class="btn" id="regenerate" style="width: 100%; margin-top: 1rem;">
+            Generate New House
+          </button>
+
+          <div style="margin-top: 1rem; font-size: 0.85rem; color: #888;">
+            Random generation creates houses with varying dimensions, window placements, and features based on the seed value.
+          </div>
+        </div>
+
+        <div id="stats"></div>
+      </aside>
+
+      <main id="canvas-container">
+        <div class="controls-info">
+          <div><strong>Controls:</strong></div>
+          <div>🖱️ Drag to rotate camera</div>
+          <div>🖱️ Scroll to zoom in/out</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
