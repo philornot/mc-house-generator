@@ -21,11 +21,22 @@ class App {
       height: 4,
       depth: 6,
       addWindows: true,
-      addStairs: true
+      addStairs: true,
+      roofProfile: 'gable',
+      roofDirection: 'x'
     };
 
     // Random mode parameters
     this.seed = Date.now();
+
+    // Roof descriptions
+    this.roofDescriptions = {
+      'gable': 'Classic triangular roof with two slopes meeting at a ridge.',
+      'gambrel': 'Barn-style roof with a steep lower section and gentle upper section.',
+      'hip': 'Roof with slopes on all four sides, creating a pyramid-like shape.',
+      'mono-pitched': 'Simple single-slope roof, modern and minimalist.',
+      'flat': 'Traditional flat roof with no slopes (original style).'
+    };
 
     this.init();
   }
@@ -103,6 +114,18 @@ class App {
       this.generateHouse();
     });
 
+    // Roof controls
+    document.getElementById('roof-profile').addEventListener('change', (e) => {
+      this.params.roofProfile = e.target.value;
+      this.updateRoofDescription();
+      this.generateHouse();
+    });
+
+    document.getElementById('roof-direction').addEventListener('change', (e) => {
+      this.params.roofDirection = e.target.value;
+      this.generateHouse();
+    });
+
     // Random controls
     document.getElementById('seed').addEventListener('input', (e) => {
       this.seed = parseInt(e.target.value) || 0;
@@ -122,6 +145,9 @@ class App {
     document.getElementById('regenerate').addEventListener('click', () => {
       this.generateHouse();
     });
+
+    // Initialize roof description
+    this.updateRoofDescription();
   }
 
   /**
@@ -147,6 +173,15 @@ class App {
   }
 
   /**
+   * Updates roof description based on selected profile.
+   */
+  updateRoofDescription() {
+    const descElement = document.getElementById('roof-description');
+    const profile = this.params.roofProfile;
+    descElement.textContent = this.roofDescriptions[profile] || '';
+  }
+
+  /**
    * Generates a house based on current mode.
    */
   generateHouse() {
@@ -158,7 +193,9 @@ class App {
         {
           addWindows: this.params.addWindows,
           addStairs: this.params.addStairs,
-          windowSpacing: 2
+          windowSpacing: 2,
+          roofProfile: this.params.roofProfile,
+          roofDirection: this.params.roofDirection
         }
       );
     } else {
@@ -192,12 +229,17 @@ class App {
     if (!this.currentHouse) return;
 
     const stats = document.getElementById('stats');
+    const roofBlocks = this.currentHouse.getBlocksByType('roof').length +
+                       this.currentHouse.getBlocksByType('stairs').length;
+
     stats.innerHTML = `
+      <div><strong>House Statistics</strong></div>
       <div>Dimensions: ${this.currentHouse.width}×${this.currentHouse.height}×${this.currentHouse.depth}</div>
       <div>Total blocks: ${this.currentHouse.getBlockCount()}</div>
       <div>Walls: ${this.currentHouse.getBlocksByType('wall').length}</div>
       <div>Windows: ${this.currentHouse.getBlocksByType('window').length}</div>
-      <div>Stairs: ${this.currentHouse.getBlocksByType('stairs').length}</div>
+      <div>Roof blocks: ${roofBlocks}</div>
+      <div>Entrance stairs: ${this.currentHouse.getBlocksByType('stairs').filter(b => b.y === 0).length}</div>
     `;
   }
 }

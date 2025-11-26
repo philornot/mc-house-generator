@@ -130,7 +130,8 @@
       border: none;
     }
 
-    .control input[type="number"] {
+    .control input[type="number"],
+    .control select {
       width: 100%;
       padding: 0.5rem;
       background: #3a3a3a;
@@ -138,6 +139,15 @@
       color: #fff;
       border-radius: 4px;
       font-size: 0.9rem;
+    }
+
+    .control select {
+      cursor: pointer;
+    }
+
+    .control select option {
+      background: #3a3a3a;
+      color: #fff;
     }
 
     .checkbox-control {
@@ -222,13 +232,20 @@
     .controls-info div:last-child {
       margin-bottom: 0;
     }
+
+    .roof-preview {
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      color: #888;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
   <div id="app">
     <header>
       <h1>🏠 Minecraft House Generator</h1>
-      <p class="subtitle">Procedural house generation with 3D preview</p>
+      <p class="subtitle">Procedural house generation with stylish roofs</p>
     </header>
 
     <div class="main-content">
@@ -265,6 +282,34 @@
             <input type="range" id="depth" min="4" max="16" value="6">
           </div>
 
+          <h3>Roof Style</h3>
+
+          <div class="control">
+            <label>
+              <span>Profile</span>
+            </label>
+            <select id="roof-profile">
+              <option value="gable">Gable (Classic A-Frame)</option>
+              <option value="gambrel">Gambrel (Barn Style)</option>
+              <option value="hip">Hip (Four Slopes)</option>
+              <option value="mono-pitched">Mono-Pitched (Single Slope)</option>
+              <option value="flat">Flat (No Slopes)</option>
+            </select>
+            <div class="roof-preview" id="roof-description">
+              Classic triangular roof with two slopes meeting at a ridge.
+            </div>
+          </div>
+
+          <div class="control">
+            <label>
+              <span>Direction</span>
+            </label>
+            <select id="roof-direction">
+              <option value="x">Along X axis (Front-Back)</option>
+              <option value="z">Along Z axis (Side-Side)</option>
+            </select>
+          </div>
+
           <h3>Features</h3>
 
           <div class="control checkbox-control">
@@ -274,7 +319,7 @@
 
           <div class="control checkbox-control">
             <input type="checkbox" id="stairs" checked>
-            <label for="stairs">Add Stairs</label>
+            <label for="stairs">Add Entrance Stairs</label>
           </div>
         </div>
 
@@ -296,7 +341,7 @@
           </button>
 
           <div style="margin-top: 1rem; font-size: 0.85rem; color: #888;">
-            Random generation creates houses with varying dimensions, window placements, and features based on the seed value.
+            Random generation creates houses with varying dimensions, window placements, roof styles, and features based on the seed value.
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import {Block} from '../models/Block.js';
 import {House} from '../models/House.js';
+import {RoofGenerator} from './RoofGenerator.js';
 
 /**
  * Generates basic house structures with parametric design.
@@ -17,7 +18,12 @@ export class HouseGenerator {
     static generate(width, height, depth, options = {}) {
         const house = new House(width, height, depth);
         const {
-            addWindows = true, windowSpacing = 2, doorPosition = 'front', addStairs = false
+            addWindows = true,
+            windowSpacing = 2,
+            doorPosition = 'front',
+            addStairs = false,
+            roofProfile = 'gable',
+            roofDirection = 'x'
         } = options;
 
         // Generate floor
@@ -28,8 +34,10 @@ export class HouseGenerator {
             addWindows, windowSpacing, doorPosition
         });
 
-        // Generate roof
-        this.generateRoof(house, width, height, depth);
+        // Generate roof using RoofGenerator
+        RoofGenerator.generate(house, width, height, depth, roofProfile, {
+            direction: roofDirection
+        });
 
         // Add stairs if requested
         if (addStairs) {
@@ -104,23 +112,6 @@ export class HouseGenerator {
             }
         }
     }
-
-    /**
-     * Generates roof blocks.
-     *
-     * @param {House} house - House instance
-     * @param {number} width - Width
-     * @param {number} height - Height
-     * @param {number} depth - Depth
-     */
-    static generateRoof(house, width, height, depth) {
-        for (let x = 0; x < width; x++) {
-            for (let z = 0; z < depth; z++) {
-                house.addBlock(new Block(x, height + 1, z, 'roof'));
-            }
-        }
-    }
-
 
     /**
      * Generates stairs outside the house.

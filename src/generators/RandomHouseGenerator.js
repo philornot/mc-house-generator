@@ -1,6 +1,7 @@
 import { Block } from '../models/Block.js';
 import { House } from '../models/House.js';
 import { SeededRandom } from '../utils/SeededRandom.js';
+import { RoofGenerator } from './RoofGenerator.js';
 
 /**
  * Generates randomized houses using seeded random generation.
@@ -38,8 +39,15 @@ export class RandomHouseGenerator {
     // Generate walls with random features
     this.generateRandomWalls(house, width, height, depth, rng);
 
-    // Generate roof
-    this.generateRoof(house, width, height, depth);
+    // Choose random roof profile
+    const roofProfiles = ['gable', 'gambrel', 'mono-pitched', 'hip', 'flat'];
+    const roofProfile = rng.choice(roofProfiles);
+    const roofDirection = rng.choice(['x', 'z']);
+
+    // Generate roof using RoofGenerator
+    RoofGenerator.generate(house, width, height, depth, roofProfile, {
+      direction: roofDirection
+    });
 
     // Randomly add stairs
     if (rng.chance(0.7)) {
@@ -141,22 +149,6 @@ export class RandomHouseGenerator {
         if (!isDoor) {
           house.addBlock(new Block(width - 1, y, z, isWindow ? 'window' : 'wall'));
         }
-      }
-    }
-  }
-
-  /**
-   * Generates roof blocks.
-   *
-   * @param {House} house - House instance
-   * @param {number} width - Width
-   * @param {number} height - Height
-   * @param {number} depth - Depth
-   */
-  static generateRoof(house, width, height, depth) {
-    for (let x = 0; x < width; x++) {
-      for (let z = 0; z < depth; z++) {
-        house.addBlock(new Block(x, height + 1, z, 'roof'));
       }
     }
   }
