@@ -64,7 +64,7 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ + zOffset;
           if (z < depth) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'south', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'south', false));
           }
         }
 
@@ -72,7 +72,16 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ - zOffset - 1;
           if (z >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'north', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'north', false));
+          }
+        }
+
+        // Fill interior with solid roof blocks
+        for (let x = 0; x < width; x++) {
+          for (let z = midZ - zOffset; z < midZ + zOffset; z++) {
+            if (z >= 0 && z < depth) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -98,7 +107,7 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX + xOffset;
           if (x < width) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'east', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'east', false));
           }
         }
 
@@ -106,7 +115,16 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX - xOffset - 1;
           if (x >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'west', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'west', false));
+          }
+        }
+
+        // Fill interior with solid roof blocks
+        for (let z = 0; z < depth; z++) {
+          for (let x = midX - xOffset; x < midX + xOffset; x++) {
+            if (x >= 0 && x < width) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -149,7 +167,7 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ + zOffset;
           if (z < depth) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'south', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'south', false));
           }
         }
 
@@ -157,7 +175,16 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ - zOffset - 1;
           if (z >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'north', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'north', false));
+          }
+        }
+
+        // Fill interior
+        for (let x = 0; x < width; x++) {
+          for (let z = midZ - zOffset; z < midZ + zOffset; z++) {
+            if (z >= 0 && z < depth) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -172,7 +199,7 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ + zOffset;
           if (z < depth) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'south', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'south', false));
           }
         }
 
@@ -180,7 +207,16 @@ export class RoofGenerator {
         for (let x = 0; x < width; x++) {
           const z = midZ - zOffset - 1;
           if (z >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'north', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'north', false));
+          }
+        }
+
+        // Fill interior
+        for (let x = 0; x < width; x++) {
+          for (let z = midZ - zOffset; z < midZ + zOffset; z++) {
+            if (z >= 0 && z < depth) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -198,7 +234,7 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX + xOffset;
           if (x < width) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'east', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'east', false));
           }
         }
 
@@ -206,7 +242,16 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX - xOffset - 1;
           if (x >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'west', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'west', false));
+          }
+        }
+
+        // Fill interior
+        for (let z = 0; z < depth; z++) {
+          for (let x = midX - xOffset; x < midX + xOffset; x++) {
+            if (x >= 0 && x < width) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -221,7 +266,7 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX + xOffset;
           if (x < width) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'east', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'east', false));
           }
         }
 
@@ -229,7 +274,16 @@ export class RoofGenerator {
         for (let z = 0; z < depth; z++) {
           const x = midX - xOffset - 1;
           if (x >= 0) {
-            house.addBlock(Block.createStairs(x, currentY, z, 'west', true));
+            house.addBlock(Block.createStairs(x, currentY, z, 'west', false));
+          }
+        }
+
+        // Fill interior
+        for (let z = 0; z < depth; z++) {
+          for (let x = midX - xOffset; x < midX + xOffset; x++) {
+            if (x >= 0 && x < width) {
+              house.addBlock(new Block(x, currentY, z, 'roof'));
+            }
           }
         }
       }
@@ -254,41 +308,81 @@ export class RoofGenerator {
       const currentY = startY + layer;
 
       switch (direction) {
-        case 'south':
+        case 'south': {
+          const zEdge = layer;
+          if (zEdge < depth) {
+            for (let x = 0; x < width; x++) {
+              house.addBlock(Block.createStairs(x, currentY, zEdge, 'south', false));
+            }
+          }
+
+          // Fill interior (toward negative Z)
           for (let x = 0; x < width; x++) {
-            const z = layer;
-            if (z < depth) {
-              house.addBlock(Block.createStairs(x, currentY, z, 'south', true));
+            for (let z = 0; z < zEdge; z++) {
+              if (z < depth) {
+                house.addBlock(new Block(x, currentY, z, 'roof'));
+              }
             }
           }
           break;
+        }
 
-        case 'north':
+        case 'north': {
+          const zEdge = depth - 1 - layer;
+          if (zEdge >= 0) {
+            for (let x = 0; x < width; x++) {
+              house.addBlock(Block.createStairs(x, currentY, zEdge, 'north', false));
+            }
+          }
+
+          // Fill interior (toward positive Z)
           for (let x = 0; x < width; x++) {
-            const z = depth - 1 - layer;
-            if (z >= 0) {
-              house.addBlock(Block.createStairs(x, currentY, z, 'north', true));
+            for (let z = zEdge + 1; z < depth; z++) {
+              if (z >= 0) {
+                house.addBlock(new Block(x, currentY, z, 'roof'));
+              }
             }
           }
           break;
+        }
 
-        case 'east':
-          for (let z = 0; z < depth; z++) {
-            const x = layer;
-            if (x < width) {
-              house.addBlock(Block.createStairs(x, currentY, z, 'east', true));
+        case 'east': {
+          const xEdge = layer;
+          if (xEdge < width) {
+            for (let z = 0; z < depth; z++) {
+              house.addBlock(Block.createStairs(xEdge, currentY, z, 'east', false));
             }
           }
-          break;
 
-        case 'west':
+          // Fill interior (toward negative X)
           for (let z = 0; z < depth; z++) {
-            const x = width - 1 - layer;
-            if (x >= 0) {
-              house.addBlock(Block.createStairs(x, currentY, z, 'west', true));
+            for (let x = 0; x < xEdge; x++) {
+              if (x < width) {
+                house.addBlock(new Block(x, currentY, z, 'roof'));
+              }
             }
           }
           break;
+        }
+
+        case 'west': {
+          const xEdge = width - 1 - layer;
+          if (xEdge >= 0) {
+            for (let z = 0; z < depth; z++) {
+              house.addBlock(Block.createStairs(xEdge, currentY, z, 'west', false));
+            }
+          }
+
+          // Fill interior (toward positive X)
+          for (let z = 0; z < depth; z++) {
+            for (let x = xEdge + 1; x < width; x++) {
+              if (x >= 0) {
+                house.addBlock(new Block(x, currentY, z, 'roof'));
+              }
+            }
+          }
+          break;
+        }
       }
     }
   }
@@ -316,24 +410,31 @@ export class RoofGenerator {
 
       if (minX > maxX || minZ > maxZ) break;
 
-      // North edge (z = minZ)
+      // North edge (z = minZ) - only stairs on the edge
       for (let x = minX; x <= maxX; x++) {
-        house.addBlock(Block.createStairs(x, currentY, minZ, 'north', true));
+        house.addBlock(Block.createStairs(x, currentY, minZ, 'north', false));
       }
 
-      // South edge (z = maxZ)
+      // South edge (z = maxZ) - only stairs on the edge
       for (let x = minX; x <= maxX; x++) {
-        house.addBlock(Block.createStairs(x, currentY, maxZ, 'south', true));
+        house.addBlock(Block.createStairs(x, currentY, maxZ, 'south', false));
       }
 
-      // West edge (x = minX)
+      // West edge (x = minX) - only stairs on the edge
       for (let z = minZ + 1; z < maxZ; z++) {
-        house.addBlock(Block.createStairs(minX, currentY, z, 'west', true));
+        house.addBlock(Block.createStairs(minX, currentY, z, 'west', false));
       }
 
-      // East edge (x = maxX)
+      // East edge (x = maxX) - only stairs on the edge
       for (let z = minZ + 1; z < maxZ; z++) {
-        house.addBlock(Block.createStairs(maxX, currentY, z, 'east', true));
+        house.addBlock(Block.createStairs(maxX, currentY, z, 'east', false));
+      }
+
+      // Fill interior with solid blocks
+      for (let x = minX + 1; x < maxX; x++) {
+        for (let z = minZ + 1; z < maxZ; z++) {
+          house.addBlock(new Block(x, currentY, z, 'roof'));
+        }
       }
     }
 

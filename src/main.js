@@ -22,6 +22,8 @@ class App {
       depth: 6,
       addWindows: true,
       addStairs: true,
+      addColumns: true,
+      columnSpacing: 3,
       roofProfile: 'gable',
       roofDirection: 'x'
     };
@@ -114,6 +116,17 @@ class App {
       this.generateHouse();
     });
 
+    document.getElementById('columns').addEventListener('change', (e) => {
+      this.params.addColumns = e.target.checked;
+      this.generateHouse();
+    });
+
+    document.getElementById('column-spacing').addEventListener('input', (e) => {
+      this.params.columnSpacing = parseInt(e.target.value);
+      document.getElementById('column-spacing-value').textContent = e.target.value;
+      this.generateHouse();
+    });
+
     // Roof controls
     document.getElementById('roof-profile').addEventListener('change', (e) => {
       this.params.roofProfile = e.target.value;
@@ -193,6 +206,8 @@ class App {
         {
           addWindows: this.params.addWindows,
           addStairs: this.params.addStairs,
+          addColumns: this.params.addColumns,
+          columnSpacing: this.params.columnSpacing,
           windowSpacing: 2,
           roofProfile: this.params.roofProfile,
           roofDirection: this.params.roofDirection
@@ -231,6 +246,7 @@ class App {
     const stats = document.getElementById('stats');
     const roofBlocks = this.currentHouse.getBlocksByType('roof').length +
                        this.currentHouse.getBlocksByType('stairs').length;
+    const columnBlocks = this.currentHouse.getBlocksByType('column').length;
 
     stats.innerHTML = `
       <div><strong>House Statistics</strong></div>
@@ -239,6 +255,7 @@ class App {
       <div>Walls: ${this.currentHouse.getBlocksByType('wall').length}</div>
       <div>Windows: ${this.currentHouse.getBlocksByType('window').length}</div>
       <div>Roof blocks: ${roofBlocks}</div>
+      <div>Columns: ${columnBlocks}</div>
       <div>Entrance stairs: ${this.currentHouse.getBlocksByType('stairs').filter(b => b.y === 0).length}</div>
     `;
   }

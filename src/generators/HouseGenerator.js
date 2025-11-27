@@ -23,11 +23,18 @@ export class HouseGenerator {
             doorPosition = 'front',
             addStairs = false,
             roofProfile = 'gable',
-            roofDirection = 'x'
+            roofDirection = 'x',
+            addColumns = true,
+            columnSpacing = 3
         } = options;
 
         // Generate floor
         this.generateFloor(house, width, depth);
+
+        // Generate columns if requested (before walls for proper ordering)
+        if (addColumns) {
+            this.generateColumns(house, width, height, depth, columnSpacing);
+        }
 
         // Generate walls with door and windows
         this.generateWalls(house, width, height, depth, {
@@ -58,6 +65,46 @@ export class HouseGenerator {
         for (let x = 0; x < width; x++) {
             for (let z = 0; z < depth; z++) {
                 house.addBlock(new Block(x, 0, z, 'floor'));
+            }
+        }
+    }
+
+    /**
+     * Generates columns around the building perimeter.
+     *
+     * @param {House} house - House instance
+     * @param {number} width - Width
+     * @param {number} height - Height
+     * @param {number} depth - Depth
+     * @param {number} spacing - Distance between columns along walls
+     */
+    static generateColumns(house, width, height, depth, spacing) {
+        // Place columns from ground (y=1) to top of walls (y=height)
+        for (let y = 1; y <= height; y++) {
+            // Corner columns
+            house.addBlock(Block.createColumn(-1, y, -1)); // Front-left
+            house.addBlock(Block.createColumn(width, y, -1)); // Front-right
+            house.addBlock(Block.createColumn(-1, y, depth)); // Back-left
+            house.addBlock(Block.createColumn(width, y, depth)); // Back-right
+
+            // Front wall columns (z = -1, between x = 0 and x = width-1)
+            for (let x = spacing; x < width; x += spacing) {
+                house.addBlock(Block.createColumn(x, y, -1));
+            }
+
+            // Back wall columns (z = depth, between x = 0 and x = width-1)
+            for (let x = spacing; x < width; x += spacing) {
+                house.addBlock(Block.createColumn(x, y, depth));
+            }
+
+            // Left wall columns (x = -1, between z = 0 and z = depth-1)
+            for (let z = spacing; z < depth; z += spacing) {
+                house.addBlock(Block.createColumn(-1, y, z));
+            }
+
+            // Right wall columns (x = width, between z = 0 and z = depth-1)
+            for (let z = spacing; z < depth; z += spacing) {
+                house.addBlock(Block.createColumn(width, y, z));
             }
         }
     }

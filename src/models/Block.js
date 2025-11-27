@@ -9,7 +9,7 @@ export class Block {
    * @param {number} x - X coordinate
    * @param {number} y - Y coordinate
    * @param {number} z - Z coordinate
-   * @param {string} type - Block type (floor, wall, roof, window, stairs)
+   * @param {string} type - Block type (floor, wall, roof, window, stairs, column)
    * @param {Object} metadata - Additional block properties
    */
   constructor(x, y, z, type = 'default', metadata = {}) {
@@ -35,6 +35,18 @@ export class Block {
       facing: facing,
       upsideDown: upsideDown
     });
+  }
+
+  /**
+   * Creates a column block.
+   *
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @param {number} z - Z coordinate
+   * @returns {Block} Column block instance
+   */
+  static createColumn(x, y, z) {
+    return new Block(x, y, z, 'column');
   }
 
   /**

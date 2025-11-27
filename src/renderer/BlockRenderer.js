@@ -13,6 +13,7 @@ export class BlockRenderer {
     roof: 0xA52A2A,     // Dark red
     window: 0x87CEEB,   // Sky blue
     stairs: 0xCD853F,   // Peru/tan
+    column: 0x696969,   // Dim gray (stone-like)
     default: 0x888888   // Gray
   };
 
@@ -29,7 +30,35 @@ export class BlockRenderer {
       return this.createStairsMesh(block);
     }
 
+    if (block.type === 'column') {
+      return this.createColumnMesh(block);
+    }
+
     const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshLambertMaterial({ color });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    mesh.position.set(block.x + 0.5, block.y + 0.5, block.z + 0.5);
+
+    // Add edges for better visibility
+    this.addEdges(mesh, geometry);
+
+    mesh.userData.block = block;
+
+    return mesh;
+  }
+
+  /**
+   * Creates a column mesh - smaller than regular blocks for detail.
+   *
+   * @param {Block} block - Column block
+   * @returns {THREE.Mesh} Column mesh
+   */
+  static createColumnMesh(block) {
+    const color = this.COLORS.column;
+
+    // Columns are thinner (0.4x0.4 in XZ plane, full height in Y)
+    const geometry = new THREE.BoxGeometry(0.4, 1, 0.4);
     const material = new THREE.MeshLambertMaterial({ color });
     const mesh = new THREE.Mesh(geometry, material);
 

@@ -245,7 +245,7 @@
   <div id="app">
     <header>
       <h1>🏠 Minecraft House Generator</h1>
-      <p class="subtitle">Procedural house generation with stylish roofs</p>
+      <p class="subtitle">Procedural house generation with stylish roofs and columns</p>
     </header>
 
     <div class="main-content">
@@ -321,6 +321,19 @@
             <input type="checkbox" id="stairs" checked>
             <label for="stairs">Add Entrance Stairs</label>
           </div>
+
+          <div class="control checkbox-control">
+            <input type="checkbox" id="columns" checked>
+            <label for="columns">Add Decorative Columns</label>
+          </div>
+
+          <div class="control">
+            <label>
+              <span>Column Spacing</span>
+              <span id="column-spacing-value">3</span>
+            </label>
+            <input type="range" id="column-spacing" min="2" max="5" value="3">
+          </div>
         </div>
 
         <div id="random-controls" class="control-group" style="display: none;">
@@ -341,7 +354,7 @@
           </button>
 
           <div style="margin-top: 1rem; font-size: 0.85rem; color: #888;">
-            Random generation creates houses with varying dimensions, window placements, roof styles, and features based on the seed value.
+            Random generation creates houses with varying dimensions, window placements, roof styles, columns, and features based on the seed value.
           </div>
         </div>
 
