@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft House Viewer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: #2a2a2a;
+      padding: 1rem 2rem;
+      border-bottom: 2px solid #3a3a3a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+    }
+
+    .file-input {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 0.5rem 1rem;
+      background: #4a9eff;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .btn:hover {
+      background: #3a8eef;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    #status {
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 280px;
+      background: #2a2a2a;
+      padding: 1.5rem;
+      overflow-y: auto;
+      border-right: 2px solid #3a3a3a;
+    }
+
+    .sidebar h3 {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      color: #4a9eff;
+    }
+
+    #stats {
+      font-size: 0.85rem;
+      line-height: 1.8;
+    }
+
+    #stats div {
+      margin-bottom: 0.3rem;
+    }
+
+    .info-box {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #1a1a1a;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: #888;
+    }
+
+    .info-box strong {
+      color: #4a9eff;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      background: #87ceeb;
+    }
+
+    .controls-info {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.9);
+      padding: 2rem 3rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .error {
+      color: #ff6b6b;
+    }
+
+    .success {
+      color: #51cf66;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🏠 Minecraft House Viewer</h1>
+      <div class="file-input">
+        <button class="btn" onclick="document.getElementById('fileInput').click()">
+          Load House JSON
+        </button>
+        <input type="file" id="fileInput" accept=".json">
+        <span id="status">Waiting for file...</span>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <aside class="sidebar">
+        <h3>House Statistics</h3>
+        <div id="stats">
+          <div>No house loaded</div>
+        </div>
+
+        <div class="info-box">
+          <strong>How to use:</strong><br>
+          1. Run <code>python/generator.py</code><br>
+          2. Click "Load House JSON"<br>
+          3. Select <code>output/house.json</code><br>
+          4. View your house in 3D!<br><br>
+
+          <strong>Or:</strong><br>
+          Place <code>house.json</code> in the same folder as this HTML file and reload the page.
+        </div>
+      </aside>
+
+      <main id="canvas-container">
+        <div class="controls-info">
+          <div><strong>Camera Controls:</strong></div>
+          <div>🖱️ Left click + drag to rotate</div>
+          <div>🖱️ Scroll to zoom in/out</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.module.js"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // =================================================================
+    // RENDERER - KOD CLAUDE'A (nie musisz tego rozumieć!)
+    // =================================================================
+
+    const COLORS = {
+      block: 0x8B4513,
+      stair: 0xCD853F
+    };
+
+    class HouseRenderer {
+      constructor(container) {
+        this.container = container;
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x87ceeb);
+
+        this.camera = new THREE.PerspectiveCamera(
+          75,
+          container.clientWidth / container.clientHeight,
+          0.1,
+          1000
+        );
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(this.renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        this.scene.add(directionalLight);
+
+        // Grid
+        const gridHelper = new THREE.GridHelper(50, 50);
+        this.scene.add(gridHelper);
+
+        // Camera controls
+        this.controls = {
+          azimuth: Math.PI / 4,
+          elevation: Math.PI / 6,
+          distance: 20
+        };
+
+        this.setupControls();
+        this.updateCamera();
+        this.animate();
+      }
+
+      setupControls() {
+        let isDragging = false;
+        let previousMouse = { x: 0, y: 0 };
+
+        this.renderer.domElement.addEventListener('mousedown', (e) => {
+          isDragging = true;
+          previousMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        this.renderer.domElement.addEventListener('mousemove', (e) => {
+          if (isDragging) {
+            const deltaX = e.clientX - previousMouse.x;
+            const deltaY = e.clientY - previousMouse.y;
+
+            this.controls.azimuth -= deltaX * 0.01;
+            this.controls.elevation += deltaY * 0.01;
+            this.controls.elevation = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, this.controls.elevation));
+
+            this.updateCamera();
+            previousMouse = { x: e.clientX, y: e.clientY };
+          }
+        });
+
+        this.renderer.domElement.addEventListener('mouseup', () => {
+          isDragging = false;
+        });
+
+        this.renderer.domElement.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          this.controls.distance += e.deltaY * 0.01;
+          this.controls.distance = Math.max(5, Math.min(100, this.controls.distance));
+          this.updateCamera();
+        });
+
+        window.addEventListener('resize', () => this.handleResize());
+      }
+
+      updateCamera(centerX = 0, centerY = 3, centerZ = 0) {
+        const { azimuth, elevation, distance } = this.controls;
+
+        this.camera.position.x = centerX + distance * Math.sin(elevation) * Math.cos(azimuth);
+        this.camera.position.y = centerY + distance * Math.cos(elevation);
+        this.camera.position.z = centerZ + distance * Math.sin(elevation) * Math.sin(azimuth);
+
+        this.camera.lookAt(centerX, centerY, centerZ);
+      }
+
+      handleResize() {
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
+
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height);
+      }
+
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        this.renderer.render(this.scene, this.camera);
+      }
+
+      loadHouse(houseData) {
+        // Remove old blocks
+        const blocksToRemove = this.scene.children.filter(child => child.userData.isBlock);
+        blocksToRemove.forEach(block => this.scene.remove(block));
+
+        // Add new blocks
+        houseData.blocks.forEach(blockData => {
+          const mesh = blockData.type === 'stair'
+            ? this.createStairsMesh(blockData, COLORS.stair)
+            : this.createBlockMesh(blockData, COLORS.block);
+          mesh.userData.isBlock = true;
+          this.scene.add(mesh);
+        });
+
+        // Update camera
+        const dims = houseData.dimensions;
+        this.updateCamera(dims.width / 2, dims.height / 2, dims.depth / 2);
+      }
+
+      createBlockMesh(blockData) {
+        const color = blockData.type === 'stair' ? COLORS.stair : COLORS.block;
+
+        if (blockData.type === 'stair') {
+          return this.createStairsMesh(blockData, color);
+        }
+
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshLambertMaterial({ color });
+        const mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.set(blockData.x + 0.5, blockData.y + 0.5, blockData.z + 0.5);
+
+        this.addEdges(mesh, geometry);
+        return mesh;
+      }
+
+      createStairsMesh(blockData, color) {
+        const group = new THREE.Group();
+        const material = new THREE.MeshLambertMaterial({ color });
+
+        // Bottom step
+        const bottomGeometry = new THREE.BoxGeometry(1, 0.5, 1);
+        const bottomStep = new THREE.Mesh(bottomGeometry, material);
+        bottomStep.position.set(0, -0.25, 0);
+        this.addEdges(bottomStep, bottomGeometry);
+        group.add(bottomStep);
+
+        // Top step
+        const topGeometry = new THREE.BoxGeometry(1, 0.5, 0.5);
+        const topStep = new THREE.Mesh(topGeometry, material);
+
+        const upsideDown = blockData.metadata?.upsideDown || false;
+        topStep.position.set(0, 0.25, upsideDown ? -0.25 : 0.25);
+        this.addEdges(topStep, topGeometry);
+        group.add(topStep);
+
+        // Rotation
+        const rotations = {
+          north: 0,
+          east: Math.PI / 2,
+          south: Math.PI,
+          west: -Math.PI / 2
+        };
+        group.rotation.y = rotations[blockData.metadata?.facing] || 0;
+
+        if (upsideDown) {
+          group.rotation.z = Math.PI;
+        }
+
+        group.position.set(blockData.x + 0.5, blockData.y + 0.5, blockData.z + 0.5);
+
+        return group;
+      }
+
+      addEdges(mesh, geometry) {
+        const edges = new THREE.EdgesGeometry(geometry);
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+        const wireframe = new THREE.LineSegments(edges, lineMaterial);
+        mesh.add(wireframe);
+      }
+    }
+
+    // =================================================================
+    // APP LOGIC
+    // =================================================================
+
+    const container = document.getElementById('canvas-container');
+    const renderer = new HouseRenderer(container);
+    const statusElement = document.getElementById('status');
+    const statsElement = document.getElementById('stats');
+
+    function updateStats(houseData) {
+      const blockCounts = {};
+      houseData.blocks.forEach(block => {
+        blockCounts[block.type] = (blockCounts[block.type] || 0) + 1;
+      });
+
+      const dims = houseData.dimensions;
+      let html = `<div><strong>Dimensions:</strong> ${dims.width}×${dims.height}×${dims.depth}</div>`;
+      html += `<div><strong>Total blocks:</strong> ${houseData.blocks.length}</div>`;
+      html += '<div style="margin-top: 0.5rem;"></div>';
+
+      Object.entries(blockCounts).forEach(([type, count]) => {
+        html += `<div class="capitalize">${type}: ${count}</div>`;
+      });
+
+      statsElement.innerHTML = html;
+    }
+
+    function loadHouseFromJSON(jsonData) {
+      try {
+        renderer.loadHouse(jsonData);
+        updateStats(jsonData);
+        statusElement.textContent = '✓ House loaded successfully!';
+        statusElement.className = 'success';
+      } catch (error) {
+        statusElement.textContent = '✗ Error loading house: ' + error.message;
+        statusElement.className = 'error';
+        console.error(error);
+      }
+    }
+
+    // File input handler
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      statusElement.textContent = 'Loading...';
+      statusElement.className = '';
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const jsonData = JSON.parse(event.target.result);
+          loadHouseFromJSON(jsonData);
+        } catch (error) {
+          statusElement.textContent = '✗ Invalid JSON file';
+          statusElement.className = 'error';
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // Auto-load house.json if it exists in the same directory
+    fetch('./house.json')
+      .then(response => response.json())
+      .then(data => {
+        loadHouseFromJSON(data);
+        statusElement.textContent = '✓ Auto-loaded house.json';
+      })
+      .catch(() => {
+        // Silently fail - file doesn't exist yet
+      });
+  </script>
+</body>
+</html>
