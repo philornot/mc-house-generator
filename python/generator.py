@@ -1,337 +1,372 @@
+"""Minecraft house generator and exporter.
+
+This module builds a simple rectangular house model using NumPy arrays and
+exports the result to a JSON structure that can be consumed by the Three.js
+viewer in the frontend directory.
 """
-Generator domów w Minecraft - TWÓJ KOD
-Ten plik rozumiesz i edytujesz!
-"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+from typing import Literal
 
 import numpy as np
-import json
-from pathlib import Path
 
-# =============================================================================
-# DEFINICJE TYPÓW BLOKÓW
-# =============================================================================
 
-# Typy bloków - możesz dodawać własne
-BLOCK_TYPES = {
-    'AIR': 0,
-    'BLOCK': 1,
-    'STAIR': 2,
+class BlockType(IntEnum):
+    """Enumerates supported block identifiers."""
+
+    AIR = 0
+    SOLID = 1
+    STAIR = 2
+
+
+class StairRotation(IntEnum):
+    """Represents the orientation of a stair block."""
+
+    NORTH = 0
+    EAST = 1
+    SOUTH = 2
+    WEST = 3
+
+
+@dataclass(frozen=True)
+class HouseOptions:
+    """Holds toggleable generation options."""
+
+    add_windows: bool = True
+    add_columns: bool = True
+    add_stairs: bool = True
+    roof_type: Literal["flat", "gable"] = "flat"
+
+
+SYMBOLS = {
+    BlockType.AIR: ".",
+    BlockType.SOLID: "#",
+    BlockType.STAIR: "=",
 }
 
-# Rotacje dla schodów
-ROTATIONS = {
-    'NORTH': 0,
-    'EAST': 1,
-    'SOUTH': 2,
-    'WEST': 3,
-}
 
-
-# =============================================================================
-# GŁÓWNA FUNKCJA GENERUJĄCA DOM
-# =============================================================================
-
-def generate_house(width, height, depth, options=None):
-    """
-    Generuje dom używając numpy array.
+def generate_house(
+    width: int,
+    height: int,
+    depth: int,
+    options: HouseOptions | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Create a rectangular house volume.
 
     Args:
-        width: Szerokość (X)
-        height: Wysokość ścian (Y)
-        depth: Głębokość (Z)
-        options: Dodatkowe opcje (okna, kolumny, etc.)
+        width: X dimension of the interior footprint.
+        height: Wall height in blocks.
+        depth: Z dimension of the interior footprint.
+        options: Optional overrides for generation toggles.
 
     Returns:
-        tuple: (house, rotation) - dwie tablice numpy
+        Tuple of NumPy arrays representing block ids and stair rotations.
+
+    Raises:
+        ValueError: If requested dimensions are invalid.
     """
 
-    if options is None:
-        options = {
-            'add_windows': True,
-            'add_columns': True,
-            'add_stairs': True,
-            'roof_type': 'flat'
-        }
+    if min(width, height, depth) < 2:
+        raise ValueError("All dimensions must be at least 2 blocks long.")
 
-    # Tworzymy tablice z zapasem na zewnętrzne elementy
-    # +2 dla kolumn z boków, +5 dla dachu na górze
-    house = np.zeros((width + 2, height + 5, depth + 2), dtype=int)
-    rotation = np.zeros((width + 2, height + 5, depth + 2), dtype=int)
+    opts = options or HouseOptions()
+    grid = np.zeros((width + 2, height + 5, depth + 2), dtype=np.uint8)
+    rotation = np.zeros_like(grid)
 
-    # Offset - przesunięcie żeby główny dom był w środku
-    ox, oz = 1, 1  # offset X i Z
+    origin_x, origin_z = 1, 1
 
-    # === PODŁOGA ===
-    house[ox:ox + width, 0, oz:oz + depth] = BLOCK_TYPES['BLOCK']
+    _build_floor(grid, origin_x, origin_z, width, depth)
+    _build_walls(grid, origin_x, origin_z, width, height, depth)
+    _carve_doorway(grid, origin_x, origin_z, width)
 
-    # === ŚCIANY ===
-    # Przednia ściana (Z=0 w lokalnych koordynatach)
-    house[ox:ox + width, 1:height + 1, oz] = BLOCK_TYPES['BLOCK']
+    if opts.add_windows:
+        _carve_windows(grid, origin_x, origin_z, width, height, depth)
 
-    # Tylna ściana
-    house[ox:ox + width, 1:height + 1, oz + depth - 1] = BLOCK_TYPES['BLOCK']
+    if opts.add_columns:
+        _place_corner_columns(grid, origin_x, origin_z, width, height, depth)
 
-    # Lewa ściana (bez rogów - te są już w przedniej/tylnej)
-    house[ox, 1:height + 1, oz + 1:oz + depth - 1] = BLOCK_TYPES['BLOCK']
+    if opts.add_stairs:
+        _place_entry_stairs(grid, rotation, origin_x, origin_z, width)
 
-    # Prawa ściana (bez rogów)
-    house[ox + width - 1, 1:height + 1, oz + 1:oz + depth - 1] = BLOCK_TYPES['BLOCK']
-
-    # === DRZWI (usuń bloki ze ściany) ===
-    door_x = ox + width // 2
-    house[door_x, 1, oz] = BLOCK_TYPES['AIR']
-    house[door_x, 2, oz] = BLOCK_TYPES['AIR']
-
-    # === OKNA ===
-    if options['add_windows']:
-        window_y = 1 + height // 2
-        # Przednia ściana - co drugi blok
-        for x in range(ox + 2, ox + width - 2, 2):
-            house[x, window_y, oz] = BLOCK_TYPES['BLOCK']
-
-        # Boczne ściany
-        for z in range(oz + 2, oz + depth - 2, 2):
-            house[ox, window_y, z] = BLOCK_TYPES['BLOCK']
-            house[ox + width - 1, window_y, z] = BLOCK_TYPES['BLOCK']
-
-    # === KOLUMNY W ROGACH ===
-    if options['add_columns']:
-        for y in range(1, height + 1):
-            column_block = BLOCK_TYPES['BLOCK']
-            house[ox - 1, y, oz - 1] = column_block
-            house[ox + width, y, oz - 1] = column_block
-            house[ox - 1, y, oz + depth] = column_block
-            house[ox + width, y, oz + depth] = column_block
-
-    # === SCHODY PRZED DRZWIAMI ===
-    if options['add_stairs']:
-        # Dwa schody przed drzwiami, skierowane na południe (w stronę drzwi)
-        house[door_x, 0, oz - 1] = BLOCK_TYPES['STAIR']
-        rotation[door_x, 0, oz - 1] = ROTATIONS['SOUTH']
-
-        house[door_x - 1, 0, oz - 1] = BLOCK_TYPES['STAIR']
-        rotation[door_x - 1, 0, oz - 1] = ROTATIONS['SOUTH']
-
-    # === DACH ===
     roof_y = height + 1
-    if options['roof_type'] == 'flat':
-        # Prosty płaski dach
-        house[ox:ox + width, roof_y, oz:oz + depth] = BLOCK_TYPES['BLOCK']
-    elif options['roof_type'] == 'gable':
-        # Dach dwuspadowy - TU DODASZ SWÓJ ALGORYTM!
-        generate_gable_roof(house, ox, roof_y, width, depth)
+    if opts.roof_type == "flat":
+        grid[origin_x : origin_x + width, roof_y, origin_z : origin_z + depth] = (
+            BlockType.SOLID
+        )
+    else:
+        generate_gable_roof(grid, origin_x, origin_z, roof_y, width, depth)
 
-    return house, rotation
+    return grid, rotation
 
 
-# =============================================================================
-# ALGORYTMY DACHÓW (do rozbudowy!)
-# =============================================================================
+def _build_floor(grid: np.ndarray, ox: int, oz: int, width: int, depth: int) -> None:
+    grid[ox : ox + width, 0, oz : oz + depth] = BlockType.SOLID
 
-def generate_gable_roof(house, ox, start_y, width, depth):
-    """
-    Prosty dach dwuspadowy (A-frame).
-    TU MOŻESZ EKSPERYMENTOWAĆ!
+
+def _build_walls(
+    grid: np.ndarray,
+    ox: int,
+    oz: int,
+    width: int,
+    height: int,
+    depth: int,
+) -> None:
+    grid[ox : ox + width, 1 : height + 1, oz] = BlockType.SOLID
+    grid[ox : ox + width, 1 : height + 1, oz + depth - 1] = BlockType.SOLID
+    grid[ox, 1 : height + 1, oz : oz + depth] = BlockType.SOLID
+    grid[ox + width - 1, 1 : height + 1, oz : oz + depth] = BlockType.SOLID
+
+
+def _carve_doorway(grid: np.ndarray, ox: int, oz: int, width: int) -> None:
+    door_x = ox + width // 2
+    grid[door_x, 1:3, oz] = BlockType.AIR
+
+
+def _carve_windows(
+    grid: np.ndarray,
+    ox: int,
+    oz: int,
+    width: int,
+    height: int,
+    depth: int,
+) -> None:
+    window_y = min(height, 3)
+
+    for x in range(ox + 1, ox + width - 1, 2):
+        grid[x, window_y, oz] = BlockType.AIR
+        grid[x, window_y, oz + depth - 1] = BlockType.AIR
+
+    for z in range(oz + 1, oz + depth - 1, 2):
+        grid[ox, window_y, z] = BlockType.AIR
+        grid[ox + width - 1, window_y, z] = BlockType.AIR
+
+
+def _place_corner_columns(
+    grid: np.ndarray,
+    ox: int,
+    oz: int,
+    width: int,
+    height: int,
+    depth: int,
+) -> None:
+    column_positions = (
+        (ox - 1, oz - 1),
+        (ox + width, oz - 1),
+        (ox - 1, oz + depth),
+        (ox + width, oz + depth),
+    )
+
+    for x, z in column_positions:
+        grid[x, 1 : height + 1, z] = BlockType.SOLID
+
+
+def _place_entry_stairs(
+    grid: np.ndarray,
+    rotation: np.ndarray,
+    ox: int,
+    oz: int,
+    width: int,
+) -> None:
+    door_x = ox + width // 2
+    step_positions = (door_x, door_x - 1)
+
+    for x in step_positions:
+        grid[x, 0, oz - 1] = BlockType.STAIR
+        rotation[x, 0, oz - 1] = StairRotation.SOUTH
+
+
+def generate_gable_roof(
+    grid: np.ndarray,
+    ox: int,
+    oz: int,
+    start_y: int,
+    width: int,
+    depth: int,
+) -> None:
+    """Create a simple gable roof along the depth axis.
 
     Args:
-        house: Tablica numpy do modyfikacji
-        ox: Offset X (gdzie zaczyna się dom)
-        start_y: Wysokość startu dachu
-        width: Szerokość domu
-        depth: Głębokość domu
+        grid: Volume that stores block identifiers.
+        ox: Origin X of the interior footprint inside the padded grid.
+        oz: Origin Z of the interior footprint inside the padded grid.
+        start_y: Vertical layer where the roof begins.
+        width: Width of the building footprint.
+        depth: Depth of the building footprint.
     """
 
-    # Środek w osi Z
-    mid_z = depth // 2
+    half_depth = (depth + 1) // 2
 
-    # Wysokość dachu (połowa głębokości)
-    roof_height = depth // 2
-
-    # Budujemy warstwami
-    for layer in range(roof_height):
-        current_y = start_y + layer
-
-        # Jak daleko od środka jesteśmy w tej warstwie
-        z_offset = layer
-
-        # Bloki dachu na tej wysokości
-        z_start = mid_z - z_offset
-        z_end = mid_z + z_offset + 1
-
-        # Wypełnij całą szerokość na tym poziomie
-        for x in range(ox, ox + width):
-            for z in range(z_start, z_end):
-                if 0 <= z < depth:
-                    house[x + ox, current_y, z + ox] = BLOCK_TYPES['BLOCK']
+    for layer in range(half_depth):
+        y = start_y + layer
+        z_start = oz + layer
+        z_end = oz + depth - layer
+        if z_start >= z_end:
+            break
+        grid[ox : ox + width, y, z_start:z_end] = BlockType.SOLID
 
 
-# =============================================================================
-# KONWERSJA DO JSON (dla renderera JavaScript)
-# =============================================================================
+def array_to_json(grid: np.ndarray, rotation: np.ndarray) -> dict:
+    """Convert NumPy volumes to a JSON-serializable representation.
 
-def array_to_json(house, rotation):
-    """
-    Konwertuje numpy arrays na JSON dla JavaScript.
-    TEN KOD MOŻESZ ZIGNOROWAĆ - to tylko konwersja.
+    Args:
+        grid: Block identifier volume.
+        rotation: Stair rotation metadata volume.
+
+    Returns:
+        Dictionary ready to be dumped to JSON.
     """
 
     type_names = {
-        0: None,  # AIR nie eksportujemy
-        1: 'block',
-        2: 'stair'
+        BlockType.SOLID: "block",
+        BlockType.STAIR: "stair",
+    }
+    rotation_names = {
+        StairRotation.NORTH: "north",
+        StairRotation.EAST: "east",
+        StairRotation.SOUTH: "south",
+        StairRotation.WEST: "west",
     }
 
-    rotation_names = ['north', 'east', 'south', 'west']
-
     blocks = []
-
-    # Przejdź przez całą tablicę
-    for x in range(house.shape[0]):
-        for y in range(house.shape[1]):
-            for z in range(house.shape[2]):
-                block_type = house[x, y, z]
-
-                # Pomiń powietrze
-                if block_type == 0:
+    for x in range(grid.shape[0]):
+        for y in range(grid.shape[1]):
+            for z in range(grid.shape[2]):
+                block_id = BlockType(grid[x, y, z])
+                if block_id == BlockType.AIR:
                     continue
 
-                # Podstawowe dane bloku
-                block_data = {
-                    "x": int(x - 1),  # Odejmij offset
+                block = {
+                    "x": int(x - 1),
                     "y": int(y),
-                    "z": int(z - 1),  # Odejmij offset
-                    "type": type_names[block_type]
+                    "z": int(z - 1),
+                    "type": type_names[block_id],
                 }
 
-                # Dodaj metadane dla schodów
-                if block_type == BLOCK_TYPES['STAIR']:
-                    rot = rotation[x, y, z]
-                    block_data["metadata"] = {
-                        "facing": rotation_names[rot],
-                        "upsideDown": False
+                if block_id == BlockType.STAIR:
+                    facing = rotation_names[StairRotation(rotation[x, y, z])]
+                    block["metadata"] = {
+                        "facing": facing,
+                        "upsideDown": False,
                     }
 
-                blocks.append(block_data)
+                blocks.append(block)
 
     return {
         "blocks": blocks,
         "dimensions": {
-            "width": int(house.shape[0] - 2),
-            "height": int(house.shape[1] - 5),
-            "depth": int(house.shape[2] - 2)
-        }
+            "width": int(grid.shape[0] - 2),
+            "height": int(grid.shape[1] - 5),
+            "depth": int(grid.shape[2] - 2),
+        },
     }
 
 
-# =============================================================================
-# FUNKCJE POMOCNICZE
-# =============================================================================
+def visualize_layer(grid: np.ndarray, y_level: int, title: str | None = None) -> None:
+    """Print a horizontal slice of the grid for quick inspection.
 
-def visualize_layer(house, y_level, title=""):
+    Args:
+        grid: Block identifier volume.
+        y_level: Vertical layer index to display.
+        title: Optional caption printed before the slice.
     """
-    Wyświetl warstwę poziomą w konsoli.
-    SUPER PRZYDATNE DO DEBUGOWANIA!
-    """
-
-    symbols = {
-        0: '·',  # AIR
-        1: '█',  # BLOCK
-        2: '≡',  # STAIR
-    }
 
     if title:
-        print(f"\n{title}")
-    print(f"Warstwa Y={y_level}")
-    print("  " + "".join(str(x % 10) for x in range(house.shape[0])) + " (X)")
-
-    for z in range(house.shape[2]):
-        line = f"{z:2d} "
-        for x in range(house.shape[0]):
-            block = house[x, y_level, z]
-            line += symbols.get(block, '?')
-        print(line)
-    print("   " + " " * house.shape[0] + "(Z)")
+        print(title)
+    header = "  " + "".join(str(x % 10) for x in range(grid.shape[0]))
+    print(header)
+    for z in range(grid.shape[2]):
+        row = f"{z:2d} "
+        for x in range(grid.shape[0]):
+            block = BlockType(grid[x, y_level, z])
+            row += SYMBOLS[block]
+        print(row)
 
 
-def print_stats(house):
-    """Wyświetl statystyki bloków"""
+def print_stats(grid: np.ndarray) -> None:
+    """Display a short histogram of block usage."""
 
-    unique, counts = np.unique(house, return_counts=True)
-
-    type_names = {
-        0: 'AIR',
-        1: 'BLOCK',
-        2: 'STAIR'
-    }
-
-    print("\nStatystyki bloków:")
-    for block_type, count in zip(unique, counts):
-        if block_type == 0:
+    unique, counts = np.unique(grid, return_counts=True)
+    for block_id, count in zip(unique, counts):
+        if block_id == BlockType.AIR:
             continue
-        name = type_names.get(block_type, 'UNKNOWN')
-        print(f"  {name:10s}: {count:4d}")
+        name = BlockType(block_id).name
+        print(f"{name:<6}: {count}")
 
 
-# =============================================================================
-# MAIN - uruchom to żeby wygenerować dom!
-# =============================================================================
+def _default_output_path() -> Path:
+    project_root = Path(__file__).resolve().parents[1]
+    output_dir = project_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir / "house.json"
+
+
+def export_house_json(data: dict, output_path: Path | None = None) -> Path:
+    """Persist the generated JSON to disk."""
+
+    target = output_path or _default_output_path()
+    with target.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+    return target
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments provided by the user."""
+
+    parser = argparse.ArgumentParser(description="Generate a Minecraft house.")
+    parser.add_argument("--width", type=int, default=8, help="Interior width in blocks")
+    parser.add_argument("--height", type=int, default=4, help="Wall height in blocks")
+    parser.add_argument("--depth", type=int, default=6, help="Interior depth in blocks")
+    parser.add_argument(
+        "--roof",
+        choices=["flat", "gable"],
+        default="flat",
+        help="Roof style to apply",
+    )
+    parser.add_argument("--no-windows", action="store_true", help="Disable window cutouts")
+    parser.add_argument("--no-columns", action="store_true", help="Disable corner columns")
+    parser.add_argument("--no-stairs", action="store_true", help="Disable entry stairs")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Optional custom output path for the generated JSON",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Entrypoint for CLI execution."""
+
+    args = parse_args()
+    options = HouseOptions(
+        add_windows=not args.no_windows,
+        add_columns=not args.no_columns,
+        add_stairs=not args.no_stairs,
+        roof_type=args.roof,
+    )
+
+    grid, rotation = generate_house(args.width, args.height, args.depth, options)
+    data = array_to_json(grid, rotation)
+
+    target = export_house_json(data, args.output)
+
+    print("House generated:")
+    print(f"  Dimensions: {data['dimensions']}")
+    print(f"  Blocks: {len(data['blocks'])}")
+    print(f"  Output: {target}")
+    print()
+    visualize_layer(grid, 0, "Floor (Y=0)")
+    visualize_layer(grid, args.height // 2, "Mid-wall layer")
+    visualize_layer(grid, args.height + 1, "Roof layer")
+    print()
+    print("Block usage:")
+    print_stats(grid)
+
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("GENERATOR DOMÓW MINECRAFT")
-    print("=" * 60)
-
-    # PARAMETRY - ZMIEŃ TO!
-    WIDTH = 8
-    HEIGHT = 4
-    DEPTH = 6
-
-    OPTIONS = {
-        'add_windows': True,
-        'add_columns': True,
-        'add_stairs': True,
-        'roof_type': 'flat'  # 'flat' lub 'gable'
-    }
-
-    print(f"\nGeneruję dom {WIDTH}×{HEIGHT}×{DEPTH}...")
-
-    # GENERUJ DOM
-    house, rotation = generate_house(WIDTH, HEIGHT, DEPTH, OPTIONS)
-
-    # WIZUALIZUJ W KONSOLI
-    print("\n" + "=" * 60)
-    print("WIZUALIZACJA")
-    print("=" * 60)
-
-    visualize_layer(house, 0, "Podłoga (Y=0)")
-    visualize_layer(house, HEIGHT // 2, f"Środkowa wysokość (Y={HEIGHT // 2})")
-    visualize_layer(house, HEIGHT + 1, f"Dach (Y={HEIGHT + 1})")
-
-    # STATYSTYKI
-    print_stats(house)
-
-    # ZAPISZ DO JSON
-    print("\n" + "=" * 60)
-    print("EKSPORT DO JSON")
-    print("=" * 60)
-
-    json_data = array_to_json(house, rotation)
-
-    # Utwórz folder output jeśli nie istnieje
-    output_dir = Path(__file__).parent.parent / 'output'
-    output_dir.mkdir(exist_ok=True)
-
-    output_file = output_dir / 'house.json'
-    with open(output_file, 'w') as f:
-        json.dump(json_data, f, indent=2)
-
-    print(f"\n✓ Zapisano {len(json_data['blocks'])} bloków")
-    print(f"✓ Plik: {output_file}")
-    print("\n" + "=" * 60)
-    print("GOTOWE!")
-    print("=" * 60)
-    print("\nTeraz:")
-    print("1. Otwórz frontend/index.html w przeglądarce")
-    print("2. Kliknij 'Load House' i wybierz output/house.json")
-    print("3. Zobacz swój dom w 3D!")
-    print("\nLUB po prostu otwórz index.html - automatycznie załaduje house.json")
+    main()
