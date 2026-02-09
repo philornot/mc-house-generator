@@ -1,0 +1,88 @@
+"""Test script for litematic parser."""
+
+from litematic_parser import LitematicParser
+import sys
+
+
+def test_parser(directory: str):
+    """Test the parser on a directory.
+
+    Args:
+        directory: Path to directory with .litematic files.
+    """
+    print("=" * 60)
+    print("LITEMATIC PARSER TEST")
+    print("=" * 60)
+
+    # Initialize parser
+    parser = LitematicParser(cache_dir=".litematic_cache")
+
+    # First run - parses files
+    print("\n[TEST 1] First run - parsing files...")
+    results = parser.parse_directory(directory, use_cache=False)
+
+    if not results:
+        print("No .litematic files found!")
+        return
+
+    # Second run - should use cache
+    print("\n[TEST 2] Second run - testing cache...")
+    results = parser.parse_directory(directory, use_cache=True)
+
+    # Display results
+    print("\n" + "=" * 60)
+    print("RESULTS")
+    print("=" * 60)
+    print(f"Total files parsed: {len(results)}")
+
+    # Analyze each file
+    for filename, (voxel_tensor, block_mapping) in results.items():
+        print(f"\n{filename}:")
+        print(f"  Shape (X,Y,Z): {voxel_tensor.shape}")
+        print(f"  Total blocks: {voxel_tensor.size}")
+        print(f"  Unique block types: {len(block_mapping)}")
+        print(f"  Min block ID: {voxel_tensor.min()}")
+        print(f"  Max block ID: {voxel_tensor.max()}")
+
+        # Count air vs solid blocks
+        air_blocks = sum(1 for name in block_mapping.values() if 'air' in name.lower())
+        solid_blocks = len(block_mapping) - air_blocks
+        print(f"  Air types: {air_blocks}, Solid types: {solid_blocks}")
+
+    # Create unified palette
+    print("\n" + "=" * 60)
+    print("UNIFIED PALETTE")
+    print("=" * 60)
+    unified_palette = parser.get_unified_block_palette(results)
+    print(f"Total unique blocks across all files: {len(unified_palette)}")
+
+    # Show first 10 blocks
+    print("\nFirst 10 block types:")
+    for block_name, block_id in list(unified_palette.items())[:10]:
+        print(f"  {block_id}: {block_name}")
+
+    # Convert one example to unified IDs
+    if results:
+        filename, (voxel_tensor, block_mapping) = next(iter(results.items()))
+        unified_tensor = parser.convert_to_unified_ids(
+            voxel_tensor,
+            block_mapping,
+            unified_palette
+        )
+        print(f"\n[TEST 3] Conversion to unified IDs:")
+        print(f"  Original shape: {voxel_tensor.shape}")
+        print(f"  Unified shape: {unified_tensor.shape}")
+        print(f"  Unified min ID: {unified_tensor.min()}")
+        print(f"  Unified max ID: {unified_tensor.max()}")
+
+    print("\n" + "=" * 60)
+    print("TEST COMPLETED SUCCESSFULLY")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python test_litematic_parser.py <directory_with_litematic_files>")
+        sys.exit(1)
+
+    test_parser(sys.argv[1])

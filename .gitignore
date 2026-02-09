@@ -1,2 +1,4 @@
-/output/house.json
-/python/.venv/
+.venv
+.idea
+.cache
+houses

@@ -1,0 +1,4 @@
+numpy>=1.24.0
+nbtlib>=2.0.4
+litemapy>=0.11.0b0
+torch>=2.0.0
