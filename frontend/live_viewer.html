@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Evolution Viewer</title>
+  <style>
+    :root {
+      --bg-900: #11131a;
+      --bg-800: #191c25;
+      --bg-700: #202431;
+      --accent-500: #4da3ff;
+      --accent-400: #3894f5;
+      --success: #58d68d;
+      --warning: #f39c12;
+      --error: #ff6b6b;
+      --neutral-400: #c5cbd8;
+      --neutral-300: #949ab0;
+      --border-color: #2e3447;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--bg-900);
+      color: var(--neutral-400);
+      min-height: 100vh;
+    }
+
+    #app {
+      display: grid;
+      grid-template-columns: 350px 1fr 300px;
+      grid-template-rows: auto 1fr;
+      gap: 1px;
+      background: var(--border-color);
+      min-height: 100vh;
+    }
+
+    header {
+      grid-column: 1 / -1;
+      background: var(--bg-800);
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+
+    .header-subtitle {
+      font-size: 0.9rem;
+      color: var(--neutral-300);
+    }
+
+    .controls-panel {
+      background: var(--bg-800);
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      color: var(--neutral-300);
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+      font-weight: 600;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.9rem;
+      color: var(--neutral-300);
+    }
+
+    input[type="number"],
+    input[type="range"] {
+      width: 100%;
+      padding: 0.5rem;
+      background: var(--bg-700);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--neutral-400);
+      font-size: 0.9rem;
+    }
+
+    input[type="range"] {
+      padding: 0;
+    }
+
+    .range-value {
+      font-size: 0.85rem;
+      color: var(--accent-500);
+      text-align: right;
+    }
+
+    button {
+      padding: 0.75rem 1.5rem;
+      background: var(--accent-500);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--accent-400);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--bg-700);
+      color: var(--neutral-400);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: #2a2e3f;
+    }
+
+    button.danger {
+      background: var(--error);
+    }
+
+    .button-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .status-badge.idle {
+      background: var(--bg-700);
+      color: var(--neutral-300);
+    }
+
+    .status-badge.running {
+      background: rgba(88, 214, 141, 0.2);
+      color: var(--success);
+    }
+
+    .status-badge.paused {
+      background: rgba(243, 156, 18, 0.2);
+      color: var(--warning);
+    }
+
+    .canvas-panel {
+      background: linear-gradient(180deg, #8ec5ff 0%, #5fa7f3 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stats-panel {
+      background: var(--bg-800);
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--bg-700);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 1rem;
+    }
+
+    .stat-card h3 {
+      font-size: 0.85rem;
+      color: var(--neutral-300);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.75rem;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .stat-row:last-child {
+      border-bottom: none;
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      color: var(--neutral-300);
+    }
+
+    .stat-value {
+      font-size: 0.95rem;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: var(--bg-700);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-500), var(--success));
+      transition: width 0.3s ease;
+    }
+
+    .fitness-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .fitness-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .fitness-bar-label {
+      font-size: 0.8rem;
+      color: var(--neutral-300);
+      min-width: 80px;
+    }
+
+    .fitness-bar-track {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-700);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .fitness-bar-fill {
+      height: 100%;
+      background: var(--accent-500);
+      transition: width 0.3s ease;
+    }
+
+    .fitness-bar-value {
+      font-size: 0.8rem;
+      color: var(--neutral-400);
+      min-width: 35px;
+      text-align: right;
+    }
+
+    .generation-history {
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    .generation-entry {
+      padding: 0.5rem;
+      border-left: 3px solid transparent;
+      margin-bottom: 0.25rem;
+    }
+
+    .generation-entry.best {
+      background: rgba(88, 214, 141, 0.1);
+      border-left-color: var(--success);
+    }
+
+    .controls-hint {
+      position: absolute;
+      left: 1.25rem;
+      bottom: 1.25rem;
+      background: rgba(17, 19, 26, 0.85);
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    .controls-hint strong {
+      color: #fff;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    @media (max-width: 1400px) {
+      #app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 400px auto;
+      }
+
+      .controls-panel,
+      .stats-panel {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🧬 Live Evolution Viewer</h1>
+      <p class="header-subtitle">Watch houses evolve in real-time through constraint-based learning</p>
+    </header>
+
+    <aside class="controls-panel">
+      <section>
+        <div class="section-title">Evolution Control</div>
+        <div id="status" class="status-badge idle">Idle</div>
+        <div style="margin-top: 1rem;">
+          <button id="startBtn">Start Evolution</button>
+        </div>
+        <div class="button-group" style="margin-top: 0.5rem;">
+          <button id="pauseBtn" class="secondary" disabled>Pause</button>
+          <button id="resetBtn" class="danger" disabled>Reset</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">Dimensions</div>
+        <div class="control-group">
+          <label>Width: <span id="widthValue">10</span></label>
+          <input type="range" id="width" min="6" max="20" value="10" step="1">
+        </div>
+        <div class="control-group">
+          <label>Height: <span id="heightValue">8</span></label>
+          <input type="range" id="height" min="5" max="15" value="8" step="1">
+        </div>
+        <div class="control-group">
+          <label>Depth: <span id="depthValue">10</span></label>
+          <input type="range" id="depth" min="6" max="20" value="10" step="1">
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">Evolution Settings</div>
+        <div class="control-group">
+          <label>Target Fitness: <span id="targetFitnessValue">0.85</span></label>
+          <input type="range" id="targetFitness" min="0.5" max="1.0" value="0.85" step="0.05">
+        </div>
+        <div class="control-group">
+          <label>Speed (ms per gen): <span id="speedValue">100</span></label>
+          <input type="range" id="speed" min="50" max="1000" value="100" step="50">
+        </div>
+        <div class="control-group">
+          <label>Max Generations: <span id="maxGenValue">200</span></label>
+          <input type="range" id="maxGen" min="50" max="500" value="200" step="50">
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">Actions</div>
+        <button id="exportBtn" class="secondary" disabled>Export to JSON</button>
+      </section>
+    </aside>
+
+    <section id="canvas-container" class="canvas-panel" aria-label="3D evolution viewport">
+      <div class="controls-hint">
+        <strong>Camera controls</strong>
+        <div>Left click + drag: orbit</div>
+        <div>Scroll: zoom</div>
+      </div>
+    </section>
+
+    <aside class="stats-panel">
+      <div class="stat-card">
+        <h3>Current Generation</h3>
+        <div class="stat-row">
+          <span class="stat-label">Generation</span>
+          <span id="genNumber" class="stat-value">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Total Fitness</span>
+          <span id="totalFitness" class="stat-value">0.00</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <h3>Fitness Breakdown</h3>
+        <div class="fitness-bars">
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Floor</span>
+            <div class="fitness-bar-track">
+              <div id="floorBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="floorValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Walls</span>
+            <div class="fitness-bar-track">
+              <div id="wallBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="wallValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Roof</span>
+            <div class="fitness-bar-track">
+              <div id="roofBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="roofValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Door</span>
+            <div class="fitness-bar-track">
+              <div id="doorBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="doorValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Enclosure</span>
+            <div class="fitness-bar-track">
+              <div id="enclosureBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="enclosureValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Connected</span>
+            <div class="fitness-bar-track">
+              <div id="connectivityBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="connectivityValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Symmetry</span>
+            <div class="fitness-bar-track">
+              <div id="symmetryBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="symmetryValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Windows</span>
+            <div class="fitness-bar-track">
+              <div id="windowBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="windowValue" class="fitness-bar-value">0.00</span>
+          </div>
+          <div class="fitness-bar">
+            <span class="fitness-bar-label">Aesthetic</span>
+            <div class="fitness-bar-track">
+              <div id="aestheticBar" class="fitness-bar-fill" style="width: 0%"></div>
+            </div>
+            <span id="aestheticValue" class="fitness-bar-value">0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <h3>Best Generation</h3>
+        <div class="stat-row">
+          <span class="stat-label">Generation</span>
+          <span id="bestGenNumber" class="stat-value">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Fitness</span>
+          <span id="bestFitness" class="stat-value">—</span>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <h3>History</h3>
+        <div id="history" class="generation-history">
+          <p style="color: var(--neutral-300); font-size: 0.85rem;">No generations yet</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.module.js"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    /**
+     * Minimal Three.js renderer for live evolution preview.
+     */
+    class LiveRenderer {
+      /**
+       * @param {HTMLElement} container Host element for WebGL canvas.
+       */
+      constructor(container) {
+        this.container = container;
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x87ceeb);
+
+        this.camera = new THREE.PerspectiveCamera(
+          75,
+          container.clientWidth / container.clientHeight,
+          0.1,
+          1000
+        );
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(this.renderer.domElement);
+
+        this.controls = {
+          azimuth: Math.PI / 4,
+          elevation: Math.PI / 6,
+          distance: 20,
+        };
+
+        this.houseGroup = new THREE.Group();
+        this.scene.add(this.houseGroup);
+
+        this.#addLighting();
+        this.#addGrid();
+        this.#registerInteractions();
+
+        this.animate = this.animate.bind(this);
+        this.updateCamera();
+        this.animate();
+      }
+
+      #addLighting() {
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        this.scene.add(directionalLight);
+      }
+
+      #addGrid() {
+        const gridHelper = new THREE.GridHelper(50, 50);
+        this.scene.add(gridHelper);
+      }
+
+      #registerInteractions() {
+        let isDragging = false;
+        let previous = { x: 0, y: 0 };
+        const canvas = this.renderer.domElement;
+
+        canvas.addEventListener('mousedown', (e) => {
+          isDragging = true;
+          previous = { x: e.clientX, y: e.clientY };
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+          if (!isDragging) return;
+          const dx = e.clientX - previous.x;
+          const dy = e.clientY - previous.y;
+
+          this.controls.azimuth -= dx * 0.01;
+          this.controls.elevation = THREE.MathUtils.clamp(
+            this.controls.elevation + dy * 0.01,
+            0.1,
+            Math.PI / 2 - 0.1
+          );
+
+          previous = { x: e.clientX, y: e.clientY };
+          this.updateCamera();
+        });
+
+        window.addEventListener('mouseup', () => {
+          isDragging = false;
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          this.controls.distance = THREE.MathUtils.clamp(
+            this.controls.distance + e.deltaY * 0.01,
+            5,
+            100
+          );
+          this.updateCamera();
+        });
+
+        window.addEventListener('resize', () => this.handleResize());
+      }
+
+      updateCamera(centerX = 0, centerY = 5, centerZ = 0) {
+        const { azimuth, elevation, distance } = this.controls;
+
+        this.camera.position.x = centerX + distance * Math.sin(elevation) * Math.cos(azimuth);
+        this.camera.position.y = centerY + distance * Math.cos(elevation);
+        this.camera.position.z = centerZ + distance * Math.sin(elevation) * Math.sin(azimuth);
+        this.camera.lookAt(centerX, centerY, centerZ);
+      }
+
+      handleResize() {
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height);
+      }
+
+      animate() {
+        this.renderer.render(this.scene, this.camera);
+        requestAnimationFrame(this.animate);
+      }
+
+      /**
+       * Update the scene with new grid data.
+       * @param {Array} grid 3D array of blocks.
+       * @param {number} width Grid width.
+       * @param {number} height Grid height.
+       * @param {number} depth Grid depth.
+       */
+      updateGrid(grid, width, height, depth) {
+        // Clear existing blocks
+        while (this.houseGroup.children.length > 0) {
+          const child = this.houseGroup.children.pop();
+          this.houseGroup.remove(child);
+        }
+
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+
+        for (let x = 0; x < width; x++) {
+          for (let y = 0; y < height; y++) {
+            for (let z = 0; z < depth; z++) {
+              if (grid[x][y][z] > 0) {
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+
+                const edges = new THREE.EdgesGeometry(geometry);
+                const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+                const wireframe = new THREE.LineSegments(edges, edgeMaterial);
+                mesh.add(wireframe);
+
+                this.houseGroup.add(mesh);
+              }
+            }
+          }
+        }
+
+        this.updateCamera(width / 2, height / 2, depth / 2);
+      }
+    }
+
+    // Initialize renderer
+    const container = document.getElementById('canvas-container');
+    const renderer = new LiveRenderer(container);
+
+    // UI elements
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const exportBtn = document.getElementById('exportBtn');
+
+    const genNumberEl = document.getElementById('genNumber');
+    const totalFitnessEl = document.getElementById('totalFitness');
+    const progressFillEl = document.getElementById('progressFill');
+
+    const bestGenNumberEl = document.getElementById('bestGenNumber');
+    const bestFitnessEl = document.getElementById('bestFitness');
+    const historyEl = document.getElementById('history');
+
+    // Range inputs
+    const widthInput = document.getElementById('width');
+    const heightInput = document.getElementById('height');
+    const depthInput = document.getElementById('depth');
+    const targetFitnessInput = document.getElementById('targetFitness');
+    const speedInput = document.getElementById('speed');
+    const maxGenInput = document.getElementById('maxGen');
+
+    // Update value displays
+    widthInput.addEventListener('input', (e) => {
+      document.getElementById('widthValue').textContent = e.target.value;
+    });
+    heightInput.addEventListener('input', (e) => {
+      document.getElementById('heightValue').textContent = e.target.value;
+    });
+    depthInput.addEventListener('input', (e) => {
+      document.getElementById('depthValue').textContent = e.target.value;
+    });
+    targetFitnessInput.addEventListener('input', (e) => {
+      document.getElementById('targetFitnessValue').textContent = parseFloat(e.target.value).toFixed(2);
+    });
+    speedInput.addEventListener('input', (e) => {
+      document.getElementById('speedValue').textContent = e.target.value;
+    });
+    maxGenInput.addEventListener('input', (e) => {
+      document.getElementById('maxGenValue').textContent = e.target.value;
+    });
+
+    /**
+     * Evolution state manager.
+     */
+    class EvolutionManager {
+      constructor() {
+        this.running = false;
+        this.paused = false;
+        this.currentGeneration = 0;
+        this.bestGeneration = null;
+        this.history = [];
+        this.currentGrid = null;
+        this.intervalId = null;
+
+        this.width = 10;
+        this.height = 8;
+        this.depth = 10;
+        this.targetFitness = 0.85;
+        this.speed = 100;
+        this.maxGenerations = 200;
+      }
+
+      start() {
+        this.running = true;
+        this.paused = false;
+        this.currentGeneration = 0;
+        this.bestGeneration = null;
+        this.history = [];
+
+        this.width = parseInt(widthInput.value);
+        this.height = parseInt(heightInput.value);
+        this.depth = parseInt(depthInput.value);
+        this.targetFitness = parseFloat(targetFitnessInput.value);
+        this.speed = parseInt(speedInput.value);
+        this.maxGenerations = parseInt(maxGenInput.value);
+
+        statusEl.className = 'status-badge running';
+        statusEl.textContent = 'Running';
+        startBtn.disabled = true;
+        pauseBtn.disabled = false;
+        resetBtn.disabled = false;
+        exportBtn.disabled = true;
+
+        // Start with base house structure
+        this.currentGrid = this.generateBaseHouse();
+        this.runGeneration();
+      }
+
+      pause() {
+        this.paused = !this.paused;
+        if (this.paused) {
+          statusEl.className = 'status-badge paused';
+          statusEl.textContent = 'Paused';
+          pauseBtn.textContent = 'Resume';
+          if (this.intervalId) {
+            clearTimeout(this.intervalId);
+          }
+        } else {
+          statusEl.className = 'status-badge running';
+          statusEl.textContent = 'Running';
+          pauseBtn.textContent = 'Pause';
+          this.runGeneration();
+        }
+      }
+
+      reset() {
+        this.running = false;
+        this.paused = false;
+        this.currentGeneration = 0;
+        this.bestGeneration = null;
+        this.history = [];
+        this.currentGrid = null;
+
+        if (this.intervalId) {
+          clearTimeout(this.intervalId);
+        }
+
+        statusEl.className = 'status-badge idle';
+        statusEl.textContent = 'Idle';
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+        pauseBtn.textContent = 'Pause';
+        resetBtn.disabled = true;
+        exportBtn.disabled = true;
+
+        genNumberEl.textContent = '0';
+        totalFitnessEl.textContent = '0.00';
+        progressFillEl.style.width = '0%';
+        bestGenNumberEl.textContent = '—';
+        bestFitnessEl.textContent = '—';
+        historyEl.innerHTML = '<p style="color: var(--neutral-300); font-size: 0.85rem;">No generations yet</p>';
+
+        this.updateFitnessDisplay({
+          floor: 0, wall: 0, roof: 0, door: 0, window: 0,
+          enclosure: 0, connectivity: 0, symmetry: 0, aesthetic: 0
+        });
+      }
+
+      generateBaseHouse() {
+        const grid = Array(this.width).fill(0).map(() =>
+          Array(this.height).fill(0).map(() =>
+            Array(this.depth).fill(0)
+          )
+        );
+
+        // Solid floor
+        for (let x = 0; x < this.width; x++) {
+          for (let z = 0; z < this.depth; z++) {
+            grid[x][0][z] = 1;
+          }
+        }
+
+        // Complete walls
+        const wallHeight = Math.min(4, this.height - 2);
+
+        // Front and back
+        for (let x = 0; x < this.width; x++) {
+          for (let y = 1; y <= wallHeight; y++) {
+            grid[x][y][0] = 1;
+            grid[x][y][this.depth - 1] = 1;
+          }
+        }
+
+        // Left and right
+        for (let z = 0; z < this.depth; z++) {
+          for (let y = 1; y <= wallHeight; y++) {
+            grid[0][y][z] = 1;
+            grid[this.width - 1][y][z] = 1;
+          }
+        }
+
+        // Door in front
+        const doorX = Math.floor(this.width / 2);
+        grid[doorX][1][0] = 0;
+        grid[doorX][2][0] = 0;
+        if (doorX > 0) {
+          grid[doorX - 1][1][0] = 0;
+          grid[doorX - 1][2][0] = 0;
+        }
+
+        // Few windows
+        const windowY = 3;
+        if (this.width >= 6) {
+          const w1 = Math.floor(this.width / 4);
+          const w2 = Math.floor(3 * this.width / 4);
+          grid[w1][windowY][0] = 0;
+          grid[w2][windowY][0] = 0;
+        }
+
+        // Flat roof
+        const roofY = wallHeight + 1;
+        if (roofY < this.height) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              grid[x][roofY][z] = 1;
+            }
+          }
+        }
+
+        return grid;
+      }
+
+      runGeneration() {
+        if (!this.running || this.paused) return;
+
+        if (this.currentGeneration >= this.maxGenerations) {
+          this.complete();
+          return;
+        }
+
+        const generation = this.evolveGeneration();
+        this.currentGeneration++;
+
+        // Update UI
+        this.updateUI(generation);
+
+        // Check if target reached
+        if (generation.fitness.total >= this.targetFitness) {
+          this.complete();
+          return;
+        }
+
+        // Schedule next generation
+        this.intervalId = setTimeout(() => {
+          this.runGeneration();
+        }, this.speed);
+      }
+
+      evolveGeneration() {
+        let grid;
+
+        if (this.currentGeneration === 0) {
+          // Use base house
+          grid = this.currentGrid;
+        } else {
+          // Apply intelligent mutations to best
+          grid = this.applySmartMutations(this.bestGeneration.grid);
+        }
+
+        const fitness = this.evaluateFitness(grid);
+
+        const generation = {
+          number: this.currentGeneration,
+          grid: grid,
+          fitness: fitness,
+        };
+
+        this.history.push(generation);
+
+        // Update best
+        if (this.bestGeneration === null || fitness.total > this.bestGeneration.fitness.total) {
+          this.bestGeneration = generation;
+        }
+
+        this.currentGrid = grid;
+
+        return generation;
+      }
+
+      applySmartMutations(parentGrid) {
+        const mutated = parentGrid.map(xSlice =>
+          xSlice.map(ySlice => [...ySlice])
+        );
+
+        // Apply 1-3 random mutations
+        const numMutations = Math.floor(Math.random() * 3) + 1;
+
+        for (let i = 0; i < numMutations; i++) {
+          const mutationType = Math.floor(Math.random() * 6);
+
+          switch(mutationType) {
+            case 0:
+              this.addWindow(mutated);
+              break;
+            case 1:
+              this.removeWindow(mutated);
+              break;
+            case 2:
+              this.modifyRoof(mutated);
+              break;
+            case 3:
+              this.addColumn(mutated);
+              break;
+            case 4:
+              this.extendWall(mutated);
+              break;
+            case 5:
+              this.addBalcony(mutated);
+              break;
+          }
+        }
+
+        return mutated;
+      }
+
+      addWindow(grid) {
+        // Find wall blocks that could be windows
+        const candidates = [];
+        for (let y = 2; y < Math.min(5, this.height); y++) {
+          for (let x = 1; x < this.width - 1; x++) {
+            if (grid[x][y][0] === 1) candidates.push([x, y, 0]);
+            if (grid[x][y][this.depth - 1] === 1) candidates.push([x, y, this.depth - 1]);
+          }
+          for (let z = 1; z < this.depth - 1; z++) {
+            if (grid[0][y][z] === 1) candidates.push([0, y, z]);
+            if (grid[this.width - 1][y][z] === 1) candidates.push([this.width - 1, y, z]);
+          }
+        }
+
+        if (candidates.length > 0) {
+          const [x, y, z] = candidates[Math.floor(Math.random() * candidates.length)];
+          grid[x][y][z] = 0;
+        }
+      }
+
+      removeWindow(grid) {
+        const candidates = [];
+        for (let y = 2; y < Math.min(5, this.height); y++) {
+          for (let x = 0; x < this.width; x++) {
+            if (grid[x][y][0] === 0 && grid[x][y - 1][0] === 1) candidates.push([x, y, 0]);
+            if (grid[x][y][this.depth - 1] === 0 && grid[x][y - 1][this.depth - 1] === 1) {
+              candidates.push([x, y, this.depth - 1]);
+            }
+          }
+        }
+
+        if (candidates.length > 0) {
+          const [x, y, z] = candidates[Math.floor(Math.random() * candidates.length)];
+          grid[x][y][z] = 1;
+        }
+      }
+
+      modifyRoof(grid) {
+        let roofY = 0;
+        for (let y = this.height - 1; y > 0; y--) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (grid[x][y][z] > 0) {
+                roofY = Math.max(roofY, y);
+              }
+            }
+          }
+        }
+
+        if (roofY > 2 && Math.random() < 0.5) {
+          // Add peak
+          const peakX = Math.floor(this.width / 2);
+          for (let z = Math.floor(this.depth / 3); z < Math.floor(2 * this.depth / 3); z++) {
+            if (roofY + 1 < this.height) {
+              grid[peakX][roofY + 1][z] = 1;
+            }
+          }
+        }
+      }
+
+      addColumn(grid) {
+        const corners = [
+          [0, 0],
+          [0, this.depth - 1],
+          [this.width - 1, 0],
+          [this.width - 1, this.depth - 1]
+        ];
+
+        if (Math.random() < 0.4) {
+          const [x, z] = corners[Math.floor(Math.random() * corners.length)];
+          const height = Math.floor(Math.random() * 3) + 3;
+          for (let y = 1; y < Math.min(height, this.height); y++) {
+            grid[x][y][z] = 1;
+          }
+        }
+      }
+
+      extendWall(grid) {
+        let maxWallHeight = 0;
+        for (let y = 0; y < this.height; y++) {
+          for (let x = 0; x < this.width; x++) {
+            if (grid[x][y][0] > 0 || grid[x][y][this.depth - 1] > 0) {
+              maxWallHeight = Math.max(maxWallHeight, y);
+            }
+          }
+        }
+
+        if (maxWallHeight < 6 && maxWallHeight + 1 < this.height) {
+          const newHeight = maxWallHeight + 1;
+          for (let x = 0; x < this.width; x++) {
+            grid[x][newHeight][0] = 1;
+            grid[x][newHeight][this.depth - 1] = 1;
+          }
+          for (let z = 0; z < this.depth; z++) {
+            grid[0][newHeight][z] = 1;
+            grid[this.width - 1][newHeight][z] = 1;
+          }
+        }
+      }
+
+      addBalcony(grid) {
+        if (Math.random() < 0.3) {
+          const x = Math.floor(this.width / 2) + Math.floor(Math.random() * 3) - 1;
+          const y = Math.floor(Math.random() * 2) + 2;
+          const z = Math.random() < 0.5 ? 1 : this.depth - 2;
+
+          if (x >= 0 && x < this.width && y < this.height && z >= 0 && z < this.depth) {
+            grid[x][y][z] = 1;
+          }
+        }
+      }
+
+      evaluateFitness(grid) {
+        const fitness = {
+          floor: this.evaluateFloor(grid),
+          wall: this.evaluateWalls(grid),
+          roof: this.evaluateRoof(grid),
+          door: this.evaluateDoor(grid),
+          window: this.evaluateWindows(grid),
+          enclosure: this.evaluateEnclosure(grid),
+          connectivity: this.evaluateConnectivity(grid),
+          symmetry: this.evaluateSymmetry(grid),
+          aesthetic: 0.5, // Base aesthetic score
+        };
+
+        // Calculate weighted total
+        const weights = {
+          floor: 2, wall: 2.5, roof: 1.5, door: 2, window: 1.5,
+          enclosure: 1.5, connectivity: 2, symmetry: 1, aesthetic: 1
+        };
+        const total = Object.entries(weights).reduce((sum, [key, weight]) => {
+          return sum + fitness[key] * weight;
+        }, 0) / Object.values(weights).reduce((a, b) => a + b, 0);
+
+        fitness.total = total;
+
+        return fitness;
+      }
+
+      evaluateFloor(grid) {
+        let covered = 0;
+        let total = this.width * this.depth;
+
+        for (let x = 0; x < this.width; x++) {
+          for (let z = 0; z < this.depth; z++) {
+            if (grid[x][0][z] > 0) covered++;
+          }
+        }
+
+        return Math.min(covered / (total * 0.8), 1.0);
+      }
+
+      evaluateWalls(grid) {
+        let maxHeight = 0;
+
+        for (let y = 1; y < this.height; y++) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (x === 0 || x === this.width - 1 || z === 0 || z === this.depth - 1) {
+                if (grid[x][y][z] > 0) {
+                  maxHeight = Math.max(maxHeight, y);
+                }
+              }
+            }
+          }
+        }
+
+        // Prefer walls between 3-6 blocks high
+        if (maxHeight < 3) {
+          return maxHeight / 3;
+        } else if (maxHeight > 6) {
+          return Math.max(0, 1.0 - (maxHeight - 6) * 0.2);
+        }
+        return 1.0;
+      }
+
+      evaluateWindows(grid) {
+        let windowCount = 0;
+
+        for (let y = 2; y < Math.min(6, this.height); y++) {
+          for (let x = 0; x < this.width; x++) {
+            if (grid[x][y][0] === 0 && y > 0 && grid[x][y - 1][0] > 0) windowCount++;
+            if (grid[x][y][this.depth - 1] === 0 && y > 0 && grid[x][y - 1][this.depth - 1] > 0) {
+              windowCount++;
+            }
+          }
+          for (let z = 0; z < this.depth; z++) {
+            if (grid[0][y][z] === 0 && y > 0 && grid[0][y - 1][z] > 0) windowCount++;
+            if (grid[this.width - 1][y][z] === 0 && y > 0 && grid[this.width - 1][y - 1][z] > 0) {
+              windowCount++;
+            }
+          }
+        }
+
+        // Prefer 2-8 windows
+        if (windowCount < 2) return windowCount / 2;
+        if (windowCount > 8) return Math.max(0, 1.0 - (windowCount - 8) * 0.1);
+        return 1.0;
+      }
+
+      evaluateRoof(grid) {
+        const roofY = Math.min(this.height - 1, 5);
+        let covered = 0;
+        let total = this.width * this.depth;
+
+        if (roofY < this.height) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (grid[x][roofY][z] > 0) covered++;
+            }
+          }
+        }
+
+        return covered / total;
+      }
+
+      evaluateDoor(grid) {
+        for (let y = 1; y < Math.min(3, this.height); y++) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (x === 0 || x === this.width - 1 || z === 0 || z === this.depth - 1) {
+                if (grid[x][y][z] === 0 && grid[x][0][z] > 0) {
+                  return 1.0;
+                }
+              }
+            }
+          }
+        }
+        return 0.0;
+      }
+
+      evaluateEnclosure(grid) {
+        let perimeter = 0;
+        let solid = 0;
+
+        for (let y = 1; y < this.height; y++) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (x === 0 || x === this.width - 1 || z === 0 || z === this.depth - 1) {
+                perimeter++;
+                if (grid[x][y][z] > 0) solid++;
+              }
+            }
+          }
+        }
+
+        return perimeter > 0 ? Math.min(solid / (perimeter * 0.7), 1.0) : 0;
+      }
+
+      evaluateConnectivity(grid) {
+        let floating = 0;
+
+        for (let y = 1; y < this.height; y++) {
+          for (let x = 0; x < this.width; x++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (grid[x][y][z] > 0 && grid[x][y - 1][z] === 0) {
+                floating++;
+              }
+            }
+          }
+        }
+
+        return Math.max(0, 1.0 - floating / 5);
+      }
+
+      evaluateSymmetry(grid) {
+        let matching = 0;
+        let total = this.width * this.height * this.depth;
+
+        for (let x = 0; x < this.width; x++) {
+          for (let y = 0; y < this.height; y++) {
+            for (let z = 0; z < this.depth; z++) {
+              const mirrorZ = this.depth - 1 - z;
+              if (grid[x][y][z] === grid[x][y][mirrorZ]) {
+                matching++;
+              }
+            }
+          }
+        }
+
+        return matching / total;
+      }
+
+      updateUI(generation) {
+        // Update renderer
+        renderer.updateGrid(generation.grid, this.width, this.height, this.depth);
+
+        // Update stats
+        genNumberEl.textContent = generation.number;
+        totalFitnessEl.textContent = generation.fitness.total.toFixed(2);
+        progressFillEl.style.width = `${generation.fitness.total * 100}%`;
+
+        this.updateFitnessDisplay(generation.fitness);
+
+        // Update best
+        if (this.bestGeneration) {
+          bestGenNumberEl.textContent = this.bestGeneration.number;
+          bestFitnessEl.textContent = this.bestGeneration.fitness.total.toFixed(2);
+        }
+
+        // Update history
+        this.updateHistory();
+      }
+
+      updateFitnessDisplay(fitness) {
+        const bars = {
+          floor: ['floorBar', 'floorValue'],
+          wall: ['wallBar', 'wallValue'],
+          roof: ['roofBar', 'roofValue'],
+          door: ['doorBar', 'doorValue'],
+          window: ['windowBar', 'windowValue'],
+          enclosure: ['enclosureBar', 'enclosureValue'],
+          connectivity: ['connectivityBar', 'connectivityValue'],
+          symmetry: ['symmetryBar', 'symmetryValue'],
+          aesthetic: ['aestheticBar', 'aestheticValue'],
+        };
+
+        Object.entries(bars).forEach(([key, [barId, valueId]]) => {
+          const value = fitness[key] || 0;
+          document.getElementById(barId).style.width = `${value * 100}%`;
+          document.getElementById(valueId).textContent = value.toFixed(2);
+        });
+      }
+
+      updateHistory() {
+        const recentHistory = this.history.slice(-10).reverse();
+
+        if (recentHistory.length === 0) {
+          historyEl.innerHTML = '<p style="color: var(--neutral-300); font-size: 0.85rem;">No generations yet</p>';
+          return;
+        }
+
+        historyEl.innerHTML = recentHistory.map(gen => {
+          const isBest = this.bestGeneration && gen.number === this.bestGeneration.number;
+          const className = isBest ? 'generation-entry best' : 'generation-entry';
+          return `
+            <div class="${className}">
+              Gen ${gen.number}: ${gen.fitness.total.toFixed(3)} ${isBest ? '★' : ''}
+            </div>
+          `;
+        }).join('');
+      }
+
+      complete() {
+        this.running = false;
+        statusEl.className = 'status-badge idle';
+        statusEl.textContent = 'Complete';
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+        resetBtn.disabled = false;
+        exportBtn.disabled = false;
+
+        if (this.intervalId) {
+          clearTimeout(this.intervalId);
+        }
+
+        alert(`Evolution complete!\nBest fitness: ${this.bestGeneration.fitness.total.toFixed(3)} (Gen ${this.bestGeneration.number})`);
+      }
+
+      exportToJSON() {
+        if (!this.bestGeneration) return;
+
+        const blocks = [];
+        const grid = this.bestGeneration.grid;
+
+        for (let x = 0; x < this.width; x++) {
+          for (let y = 0; y < this.height; y++) {
+            for (let z = 0; z < this.depth; z++) {
+              if (grid[x][y][z] > 0) {
+                blocks.push({ x, y, z, type: 'block' });
+              }
+            }
+          }
+        }
+
+        const data = {
+          blocks: blocks,
+          dimensions: {
+            width: this.width,
+            height: this.height,
+            depth: this.depth,
+          },
+          metadata: {
+            generation: this.bestGeneration.number,
+            fitness: this.bestGeneration.fitness.total,
+            fitness_breakdown: this.bestGeneration.fitness,
+          }
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `house_gen${this.bestGeneration.number}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    const evolution = new EvolutionManager();
+
+    startBtn.addEventListener('click', () => evolution.start());
+    pauseBtn.addEventListener('click', () => evolution.pause());
+    resetBtn.addEventListener('click', () => evolution.reset());
+    exportBtn.addEventListener('click', () => evolution.exportToJSON());
+  </script>
+</body>
+</html>
