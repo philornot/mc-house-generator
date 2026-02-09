@@ -1,4 +1,7 @@
-"""Parser for Minecraft .schematic files (MCEdit format)."""
+"""Parser for Minecraft .schematic files (MCEdit and Sponge formats).
+
+Supports both old MCEdit format and newer Sponge Schematic format.
+"""
 
 import hashlib
 import pickle
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SchematicParser:
-    """Parser for Minecraft .schematic files (old MCEdit format)."""
+    """Parser for Minecraft .schematic files (MCEdit and Sponge formats)."""
 
     def __init__(self, cache_dir: str = ".cache"):
         """Initialize the parser.
@@ -79,6 +82,44 @@ class SchematicParser:
         """
         nbt_file = nbtlib.load(filepath)
 
+        # Check if this has nested Schematic tag (Sponge v3 saved as .schematic)
+        if 'Schematic' in nbt_file and isinstance(nbt_file['Schematic'], nbtlib.Compound):
+            # This is Sponge format with nested tag
+            schematic_data = nbt_file['Schematic']
+            if 'Width' in schematic_data and 'Palette' in schematic_data:
+                logger.info(f"  Detected: Sponge Schematic v3 (nested in .schematic file)")
+                return self._parse_sponge_format(schematic_data)
+
+        # Detect format by checking which keys exist
+        # Litematica format: has 'Regions', 'BlockStates', 'EnclosingSize'
+        # MCEdit format: has 'Width', 'Height', 'Length', 'Blocks' in root
+        # Sponge format: has 'Metadata', 'Palette', 'BlockData' in root
+
+        if 'Regions' in nbt_file and 'BlockStates' in nbt_file:
+            # This is actually Litematica format saved as .schematic
+            logger.warning(f"{filepath.name} is Litematica format, not standard .schematic. "
+                          f"Please use LitematicParser or place in houses/litematic/ directory.")
+            raise ValueError(f"Litematica format detected - use .litematic extension and LitematicParser")
+        elif 'Width' in nbt_file and 'Blocks' in nbt_file:
+            # MCEdit format
+            logger.info(f"  Detected: MCEdit format")
+            return self._parse_mcedit_format(nbt_file)
+        elif 'Metadata' in nbt_file and 'Palette' in nbt_file:
+            # Sponge Schematic format (sometimes saved as .schematic)
+            logger.info(f"  Detected: Sponge Schematic format")
+            return self._parse_sponge_format(nbt_file)
+        else:
+            raise ValueError(f"Unknown .schematic format. Available keys: {list(nbt_file.keys())}")
+
+    def _parse_mcedit_format(self, nbt_file) -> Tuple[np.ndarray, Dict[int, str]]:
+        """Parse MCEdit schematic format (old).
+
+        Args:
+            nbt_file: Loaded NBT data.
+
+        Returns:
+            Tuple of (voxel_tensor, block_mapping).
+        """
         # Get dimensions
         width = int(nbt_file['Width'])   # X
         height = int(nbt_file['Height']) # Y
@@ -114,6 +155,92 @@ class SchematicParser:
         voxel_tensor = np.transpose(voxel_tensor, (2, 0, 1))  # [X, Y, Z]
 
         return voxel_tensor, block_mapping
+
+    def _parse_sponge_format(self, nbt_file) -> Tuple[np.ndarray, Dict[int, str]]:
+        """Parse Sponge Schematic format.
+
+        Args:
+            nbt_file: Loaded NBT data.
+
+        Returns:
+            Tuple of (voxel_tensor, block_mapping).
+        """
+        # Try to get dimensions from Metadata first, then from root
+        if 'Metadata' in nbt_file:
+            metadata = nbt_file['Metadata']
+            width = int(metadata.get('Width', metadata.get('WEOffsetX', 0)))
+            height = int(metadata.get('Height', metadata.get('WEOffsetY', 0)))
+            length = int(metadata.get('Length', metadata.get('WEOffsetZ', 0)))
+        else:
+            # Fallback - try to infer from data size
+            logger.warning("No Metadata tag found, trying to infer dimensions")
+            width = height = length = 0
+
+        # If dimensions not found in metadata, try root level or Schematic tag
+        if width == 0 or height == 0 or length == 0:
+            if 'Schematic' in nbt_file:
+                schematic = nbt_file['Schematic']
+                width = int(schematic.get('Width', width))
+                height = int(schematic.get('Height', height))
+                length = int(schematic.get('Length', length))
+
+        if width == 0 or height == 0 or length == 0:
+            raise ValueError("Could not determine schematic dimensions")
+
+        # Get palette
+        palette = nbt_file['Palette']
+        block_mapping = {}
+
+        for block_name, block_id in palette.items():
+            block_mapping[int(block_id)] = str(block_name)
+
+        # Get block data
+        block_data = nbt_file['BlockData']
+
+        # Decode varint-encoded block data
+        block_ids = self._decode_varint_array(block_data, width * height * length)
+
+        # Reshape to 3D array [X, Y, Z]
+        voxel_tensor = np.array(block_ids, dtype=np.int32)
+        voxel_tensor = voxel_tensor.reshape((height, length, width))
+        voxel_tensor = np.transpose(voxel_tensor, (2, 0, 1))  # [X, Y, Z]
+
+        return voxel_tensor, block_mapping
+
+    def _decode_varint_array(self, data: bytes, expected_size: int) -> list:
+        """Decode varint-encoded array.
+
+        Args:
+            data: Byte array with varint-encoded values.
+            expected_size: Expected number of values.
+
+        Returns:
+            List of decoded integers.
+        """
+        result = []
+        i = 0
+
+        while i < len(data) and len(result) < expected_size:
+            value = 0
+            shift = 0
+
+            while True:
+                if i >= len(data):
+                    break
+
+                byte = data[i]
+                i += 1
+
+                value |= (byte & 0x7F) << shift
+
+                if (byte & 0x80) == 0:
+                    break
+
+                shift += 7
+
+            result.append(value)
+
+        return result
 
     def parse_directory(
         self,

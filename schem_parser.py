@@ -1,4 +1,7 @@
-"""Parser for Minecraft .schem files (WorldEdit/Sponge Schematic format)."""
+"""Parser for Minecraft .schem files (WorldEdit/Sponge Schematic format).
+
+Supports both Sponge Schematic v2 and v3 formats.
+"""
 
 import hashlib
 import pickle
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SchemParser:
-    """Parser for Minecraft .schem schematic files (Sponge/WorldEdit V2)."""
+    """Parser for Minecraft .schem schematic files (Sponge/WorldEdit V2/V3)."""
 
     def __init__(self, cache_dir: str = ".cache"):
         """Initialize the parser.
@@ -79,7 +82,13 @@ class SchemParser:
         """
         nbt_file = nbtlib.load(filepath)
 
-        # Check format - Sponge Schematic v2 or MCEdit
+        # Check format - Sponge Schematic v2/v3 or MCEdit
+        # v3 has nested 'Schematic' tag
+        if 'Schematic' in nbt_file:
+            schematic_data = nbt_file['Schematic']
+            if 'Width' in schematic_data:
+                return self._parse_sponge_format(schematic_data)
+
         if 'Width' in nbt_file:
             return self._parse_sponge_format(nbt_file)
         elif 'width' in nbt_file:
@@ -87,29 +96,29 @@ class SchemParser:
         else:
             raise ValueError("Unknown schematic format")
 
-    def _parse_sponge_format(self, nbt_file) -> Tuple[np.ndarray, Dict[int, str]]:
-        """Parse Sponge Schematic format (v2).
+    def _parse_sponge_format(self, nbt_data) -> Tuple[np.ndarray, Dict[int, str]]:
+        """Parse Sponge Schematic format (v2/v3).
 
         Args:
-            nbt_file: Loaded NBT data.
+            nbt_data: Loaded NBT data (can be root or nested 'Schematic' tag).
 
         Returns:
             Tuple of (voxel_tensor, block_mapping).
         """
         # Get dimensions
-        width = int(nbt_file['Width'])   # X
-        height = int(nbt_file['Height']) # Y
-        length = int(nbt_file['Length']) # Z
+        width = int(nbt_data['Width'])   # X
+        height = int(nbt_data['Height']) # Y
+        length = int(nbt_data['Length']) # Z
 
         # Get palette
-        palette = nbt_file['Palette']
+        palette = nbt_data['Palette']
         block_mapping = {}
 
         for block_name, block_id in palette.items():
             block_mapping[int(block_id)] = str(block_name)
 
         # Get block data
-        block_data = nbt_file['BlockData']
+        block_data = nbt_data['BlockData']
 
         # Decode varint-encoded block data
         block_ids = self._decode_varint_array(block_data, width * height * length)

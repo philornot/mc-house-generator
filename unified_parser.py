@@ -1,14 +1,20 @@
 """Unified parser for all Minecraft schematic formats.
 
 Reads from a centralized 'houses' directory with subdirectories for each format.
+Automatically detects and handles different schematic formats.
 """
 
 import logging
 from pathlib import Path
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional
 import numpy as np
 
-from litematic_parser import LitematicParser
+# Import fixed parsers
+try:
+    from litematic_parser_fixed import LitematicParser
+except ImportError:
+    from litematic_parser import LitematicParser
+
 from schem_parser import SchemParser
 from schematic_parser import SchematicParser
 
@@ -87,6 +93,17 @@ class HouseParser:
             all_results.update(schematic_results)
 
         logger.info(f"Total files parsed: {len(all_results)}")
+
+        if not all_results:
+            logger.warning("\n⚠️  No files were successfully parsed!")
+            logger.warning("Please check:")
+            logger.warning("  1. Files are in correct directories:")
+            logger.warning("     - houses/litematic/*.litematic")
+            logger.warning("     - houses/schem/*.schem")
+            logger.warning("     - houses/schematic/*.schematic")
+            logger.warning("  2. Files are not corrupted")
+            logger.warning("  3. Files are correct format (not misnamed)")
+
         return all_results
 
     def get_unified_block_palette(

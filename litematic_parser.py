@@ -1,7 +1,6 @@
 """Litematic file parser for Minecraft schematics.
 
-This parser converts .litematic files into voxel tensors for machine learning.
-Includes caching mechanism to avoid reprocessing unchanged directories.
+This parser manually parses Litematic NBT structure to avoid library bugs.
 """
 
 import hashlib
@@ -10,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 import numpy as np
-from litemapy import Schematic, Region
+import nbtlib
 
 
 logger = logging.getLogger(__name__)
@@ -70,8 +69,45 @@ class LitematicParser:
         with open(cache_file, 'wb') as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+    def _decode_litematic_blockstates(self, block_states: bytes, num_blocks: int, bits_per_block: int) -> list:
+        """Decode Litematica BlockStates array.
+
+        Args:
+            block_states: Raw BlockStates byte array.
+            num_blocks: Total number of blocks to decode.
+            bits_per_block: Bits used per block.
+
+        Returns:
+            List of block state IDs.
+        """
+        # Convert to bits
+        bit_array = []
+        for byte in block_states:
+            for i in range(8):
+                bit_array.append((byte >> i) & 1)
+
+        # Extract block states
+        block_ids = []
+        bit_index = 0
+
+        for _ in range(num_blocks):
+            if bit_index + bits_per_block > len(bit_array):
+                # Pad with zeros if we run out of bits
+                block_id = 0
+            else:
+                # Extract bits_per_block bits
+                block_id = 0
+                for i in range(bits_per_block):
+                    if bit_index < len(bit_array):
+                        block_id |= (bit_array[bit_index] << i)
+                        bit_index += 1
+
+            block_ids.append(block_id)
+
+        return block_ids
+
     def _parse_litematic_file(self, filepath: Path) -> Tuple[np.ndarray, Dict[int, str]]:
-        """Parse a single .litematic file.
+        """Parse a single .litematic file using manual NBT parsing.
 
         Args:
             filepath: Path to .litematic file.
@@ -81,43 +117,73 @@ class LitematicParser:
                 - voxel_tensor: 3D numpy array [X, Y, Z] with block IDs
                 - block_mapping: Dict mapping block IDs to block names
         """
-        # Load schematic using litemapy
-        schem = Schematic.load(str(filepath))
+        nbt_file = nbtlib.load(filepath)
 
-        # Get first region (most schematics have one region)
-        region = list(schem.regions.values())[0]
+        # Get regions (Litematica can have multiple regions)
+        regions = nbt_file.get('Regions', {})
 
-        # Get dimensions
-        x_size, y_size, z_size = region.width, region.height, region.length
+        if not regions:
+            raise ValueError("No regions found in Litematica file")
+
+        # Get first region
+        region_name = list(regions.keys())[0]
+        region = regions[region_name]
+
+        # Get size
+        size = region['Size']
+        x_size = abs(int(size['x']))  # Use abs() to handle negative dimensions
+        y_size = abs(int(size['y']))
+        z_size = abs(int(size['z']))
+
+        logger.info(f"  Region: {region_name}, Size: {x_size}x{y_size}x{z_size}")
+
+        # Get palette
+        block_state_palette = region.get('BlockStatePalette', [])
+        block_mapping = {}
+
+        for idx, block_state in enumerate(block_state_palette):
+            block_name = str(block_state.get('Name', f'unknown_{idx}'))
+            block_mapping[idx] = block_name
+
+        # Get block states
+        block_states_nbt = region.get('BlockStates', bytes())
+
+        # Calculate bits per block
+        palette_size = len(block_state_palette)
+        if palette_size <= 1:
+            bits_per_block = 1
+        else:
+            bits_per_block = max(2, (palette_size - 1).bit_length())
+
+        # Decode block states
+        num_blocks = x_size * y_size * z_size
+        block_ids = self._decode_litematic_blockstates(
+            bytes(block_states_nbt),
+            num_blocks,
+            bits_per_block
+        )
 
         # Create voxel tensor
-        voxel_tensor = np.zeros((x_size, y_size, z_size), dtype=np.int32)
+        voxel_tensor = np.array(block_ids, dtype=np.int32)
 
-        # Create block palette
-        block_to_id = {}
-        block_mapping = {}
-        current_id = 0
+        # Reshape to 3D - Litematica uses YZX order
+        try:
+            voxel_tensor = voxel_tensor.reshape((y_size, z_size, x_size))
+            # Convert to XYZ order
+            voxel_tensor = np.transpose(voxel_tensor, (2, 0, 1))
+        except ValueError as e:
+            logger.warning(f"Reshape failed, trying to fit available data: {e}")
+            # If we don't have enough data, pad with zeros
+            expected_size = x_size * y_size * z_size
+            if len(voxel_tensor) < expected_size:
+                logger.warning(f"Padding from {len(voxel_tensor)} to {expected_size} blocks")
+                voxel_tensor = np.pad(voxel_tensor, (0, expected_size - len(voxel_tensor)))
+            elif len(voxel_tensor) > expected_size:
+                logger.warning(f"Truncating from {len(voxel_tensor)} to {expected_size} blocks")
+                voxel_tensor = voxel_tensor[:expected_size]
 
-        # Iterate through all blocks in region
-        for x in range(x_size):
-            for y in range(y_size):
-                for z in range(z_size):
-                    block = region.getblock(x, y, z)
-
-                    # Get block name (with properties if present)
-                    if hasattr(block, 'blockid'):
-                        block_name = block.blockid
-                    else:
-                        block_name = str(block)
-
-                    # Add to palette if new
-                    if block_name not in block_to_id:
-                        block_to_id[block_name] = current_id
-                        block_mapping[current_id] = block_name
-                        current_id += 1
-
-                    # Set voxel value
-                    voxel_tensor[x, y, z] = block_to_id[block_name]
+            voxel_tensor = voxel_tensor.reshape((y_size, z_size, x_size))
+            voxel_tensor = np.transpose(voxel_tensor, (2, 0, 1))
 
         return voxel_tensor, block_mapping
 
@@ -157,8 +223,11 @@ class LitematicParser:
             try:
                 voxel_tensor, block_mapping = self._parse_litematic_file(filepath)
                 results[filepath.name] = (voxel_tensor, block_mapping)
+                logger.info(f"  ✅ Successfully parsed: {voxel_tensor.shape}")
             except Exception as e:
                 logger.error(f"Error parsing {filepath.name}: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
 
         # Save to cache
         self._save_cache(cache_file, results)
@@ -230,7 +299,7 @@ def main():
     )
 
     if len(sys.argv) < 2:
-        print("Usage: python litematic_parser.py <directory>")
+        print("Usage: python litematic_parser_fixed.py <directory>")
         sys.exit(1)
 
     directory = sys.argv[1]
