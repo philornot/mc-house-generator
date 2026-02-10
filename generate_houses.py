@@ -4,16 +4,15 @@ This script loads a trained VAE and generates new house structures.
 """
 
 import argparse
-import logging
 from pathlib import Path
-from typing import Optional
+
 import numpy as np
 import torch
-from tqdm import tqdm
 
+from logger import get_logger, setup_logging
 from vae_model import VAE3D
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HouseGenerator:
@@ -201,10 +200,7 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    setup_logging()
 
     # Set random seed
     if args.seed is not None:

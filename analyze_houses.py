@@ -4,12 +4,14 @@ Quick summary of generated houses - count, sizes, densities, etc.
 """
 
 import argparse
-import logging
 from pathlib import Path
+
 import numpy as np
 from tabulate import tabulate
 
-logger = logging.getLogger(__name__)
+from logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def analyze_houses(directory: str, verbose: bool = False):
@@ -193,10 +195,7 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(message)s'
-    )
+    setup_logging()
 
     analyze_houses(args.directory, verbose=args.verbose)
 

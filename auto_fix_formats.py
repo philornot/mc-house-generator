@@ -3,12 +3,14 @@
 Detects actual format of files and suggests/performs corrections.
 """
 
-import gzip
-import struct
-import shutil
 import argparse
+import gzip
+import shutil
 from pathlib import Path
-from typing import Tuple
+
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def detect_format(filepath: Path) -> str:
@@ -37,7 +39,7 @@ def detect_format(filepath: Path) -> str:
             return "unknown"
 
     except Exception as e:
-        print(f"Error reading {filepath.name}: {e}")
+        logger.error(f"Error reading {filepath.name}: {e}")
         return "error"
 
 
@@ -143,10 +145,10 @@ def fix_file(issue: dict, dry_run: bool = True) -> bool:
     new_name = filepath.stem + correct_ext
     new_path = correct_dir / new_name
 
-    print(f"\n{'[DRY RUN] ' if dry_run else ''}Fixing: {filepath.name}")
-    print(f"  Format: {actual_format}")
-    print(f"  Current: {filepath}")
-    print(f"  New:     {new_path}")
+    logger.info(f"\n{'[DRY RUN] ' if dry_run else ''}Fixing: {filepath.name}")
+    logger.info(f"  Format: {actual_format}")
+    logger.info(f"  Current: {filepath}")
+    logger.info(f"  New:     {new_path}")
 
     if not dry_run:
         try:
@@ -155,14 +157,14 @@ def fix_file(issue: dict, dry_run: bool = True) -> bool:
 
             # Move and rename
             shutil.move(str(filepath), str(new_path))
-            print(f"  ✅ Fixed!")
+            logger.info(f"  ✅ Fixed!")
             return True
 
         except Exception as e:
-            print(f"  ❌ Error: {e}")
+            logger.error(f"  ❌ Error: {e}")
             return False
     else:
-        print(f"  ℹ️  Would fix in non-dry-run mode")
+        logger.info(f"  ℹ️  Would fix in non-dry-run mode")
         return True
 
 
@@ -183,54 +185,54 @@ def main():
     directory = Path(args.directory)
 
     if not directory.exists():
-        print(f"❌ Directory {directory} not found!")
+        logger.error(f"❌ Directory {directory} not found!")
         return
 
-    print(f"Scanning {directory} for misnamed files...")
-    print("=" * 70)
+    logger.info(f"Scanning {directory} for misnamed files...")
+    logger.info("=" * 70)
 
     issues = scan_directory(directory)
 
     if not issues:
-        print("\n✅ All files are correctly named and placed!")
+        logger.info("\n✅ All files are correctly named and placed!")
         return
 
-    print(f"\n⚠️  Found {len(issues)} issue(s):\n")
+    logger.warning(f"\n⚠️  Found {len(issues)} issue(s):\n")
 
     for i, issue in enumerate(issues, 1):
-        print(f"{i}. {issue['filepath'].name}")
-        print(f"   Issue: {issue['issue_type']}")
-        print(f"   Actual format: {issue['actual_format']}")
+        logger.info(f"{i}. {issue['filepath'].name}")
+        logger.info(f"   Issue: {issue['issue_type']}")
+        logger.info(f"   Actual format: {issue['actual_format']}")
         if issue['issue_type'] == 'wrong_extension':
-            print(f"   Current extension: {issue['current_ext']}")
-            print(f"   Should be: {issue['correct_ext']}")
+            logger.info(f"   Current extension: {issue['current_ext']}")
+            logger.info(f"   Should be: {issue['correct_ext']}")
         else:
-            print(f"   Current directory: {issue['current_dir']}")
-            print(f"   Should be in: {issue['correct_dir']}")
-        print()
+            logger.info(f"   Current directory: {issue['current_dir']}")
+            logger.info(f"   Should be in: {issue['correct_dir']}")
+        logger.info("")
 
     if args.fix:
-        print("\n" + "=" * 70)
-        print("APPLYING FIXES...")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("APPLYING FIXES...")
+        logger.info("=" * 70)
 
         fixed_count = 0
         for issue in issues:
             if fix_file(issue, dry_run=False):
                 fixed_count += 1
 
-        print(f"\n✅ Fixed {fixed_count}/{len(issues)} files")
+        logger.info(f"\n✅ Fixed {fixed_count}/{len(issues)} files")
 
     else:
-        print("\n" + "=" * 70)
-        print("DRY RUN MODE (use --fix to actually apply changes)")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("DRY RUN MODE (use --fix to actually apply changes)")
+        logger.info("=" * 70)
 
         for issue in issues:
             fix_file(issue, dry_run=True)
 
-        print(f"\nTo fix these issues, run:")
-        print(f"  python auto_fix_formats.py {directory} --fix")
+        logger.info(f"\nTo fix these issues, run:")
+        logger.info(f"  python auto_fix_formats.py {directory} --fix")
 
 
 if __name__ == "__main__":

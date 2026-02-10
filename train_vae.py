@@ -3,11 +3,10 @@
 This script trains the VAE model on the house dataset and saves checkpoints.
 """
 
-import logging
 import argparse
 from pathlib import Path
 from typing import Dict, Optional
-import numpy as np
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
@@ -15,9 +14,10 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from house_dataset import HouseVoxelDataset
+from logger import get_logger, setup_logging
 from vae_model import VAE3D, vae_loss
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class VAETrainer:
@@ -77,7 +77,8 @@ class VAETrainer:
         total_kl_loss = 0
         num_batches = 0
 
-        pbar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch}")
+        pbar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch}",
+                    leave=False, mininterval=0.5)
 
         for batch in pbar:
             voxels = batch['voxels'].to(self.device)
@@ -307,10 +308,7 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    setup_logging()
 
     # Device
     if args.device == 'cuda' and not torch.cuda.is_available():

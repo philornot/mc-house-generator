@@ -3,18 +3,17 @@
 Run this before training to make sure everything is set up properly.
 """
 
-import logging
 import torch
+
+from logger import get_logger, setup_logging
 from vae_model import VAE3D, vae_loss
+
+logger = get_logger(__name__)
 
 
 def test_vae_model():
     """Test VAE model architecture and forward pass."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-    logger = logging.getLogger(__name__)
+    setup_logging()
 
     logger.info("=" * 60)
     logger.info("VAE MODEL TEST")

@@ -1,15 +1,15 @@
 """PyTorch dataset for Minecraft house voxels."""
 
-import logging
-from pathlib import Path
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from logger import get_logger, setup_logging
 from unified_parser import HouseParser
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HouseVoxelDataset(Dataset):
@@ -201,13 +201,9 @@ class HouseVoxelDataset(Dataset):
 
 def main():
     """Example usage."""
-    import logging
     from torch.utils.data import DataLoader
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    setup_logging()
 
     # Create dataset
     dataset = HouseVoxelDataset(
