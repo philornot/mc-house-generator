@@ -2,10 +2,10 @@
 Real-time Training Monitor for VAE Models.
 
 Features:
-- Tooltip snapping to the nearest data point.
-- Interactive tooltips with data lookup.
-- Custom context menus (Removed "Link Axis").
-- Real-time density tracking.
+- Multi-line tooltip support with color-coded values.
+- Tooltip snapping to the nearest data point across multiple curves.
+- Interactive terminal-style console.
+- Real-time VAE metric visualization.
 """
 
 import glob
@@ -93,8 +93,8 @@ QPushButton:hover {{
 class CustomPlotWidget(pg.PlotWidget):
     """
     Customized PlotWidget that handles:
-    1. Tooltips snapping to the closest data point.
-    2. Removal of 'Link Axis' from the context menu.
+    1. Multi-line tooltips snapping to the closest epoch.
+    2. Color-coded labels matching the curves.
     """
 
     def __init__(self, title=None, **kwargs):
@@ -106,11 +106,11 @@ class CustomPlotWidget(pg.PlotWidget):
 
         # Tooltip elements
         self.vLine = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen('#FFFFFF55', width=1))
-        self.hLine = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen('#FFFFFF55', width=1))
         self.addItem(self.vLine, ignoreBounds=True)
-        self.addItem(self.hLine, ignoreBounds=True)
         self.vLine.hide()
-        self.hLine.hide()
+
+        # We use a list of lines for multi-series snapping
+        self.hLines = []  # List of horizontal lines per series
 
         self.label = pg.TextItem(anchor=(0, 1), color=COLORS['text_primary'], fill=(20, 20, 25, 220))
         self.addItem(self.label, ignoreBounds=True)
@@ -126,17 +126,31 @@ class CustomPlotWidget(pg.PlotWidget):
             if "Link axis" in action.text():
                 vb.menu.removeAction(action)
 
-        # Data references for snapping
-        self.stored_x = []
-        self.stored_y = []
+        # Data references: List of dicts {'x': [], 'y': [], 'label': str, 'color': str}
+        self.series_data = []
 
-    def set_snap_data(self, x_data, y_data):
-        """Update the data used for tooltip snapping."""
-        self.stored_x = x_data
-        self.stored_y = y_data
+    def add_series(self, name, color):
+        """Register a series for the tooltip."""
+        self.series_data.append({
+            'name': name,
+            'color': color,
+            'x': [],
+            'y': []
+        })
+        # Create a horizontal snapping line for this series
+        h_line = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen(color + '88', width=1))
+        self.addItem(h_line, ignoreBounds=True)
+        h_line.hide()
+        self.hLines.append(h_line)
+
+    def update_series_data(self, index, x_data, y_data):
+        """Update values for a specific series index."""
+        if 0 <= index < len(self.series_data):
+            self.series_data[index]['x'] = x_data
+            self.series_data[index]['y'] = y_data
 
     def mouseMoved(self, evt):
-        if not self.stored_x:
+        if not self.series_data or not any(len(s['x']) > 0 for s in self.series_data):
             return
 
         pos = evt
@@ -144,32 +158,50 @@ class CustomPlotWidget(pg.PlotWidget):
             mousePoint = self.getViewBox().mapSceneToView(pos)
             x_mouse = mousePoint.x()
 
-            # Find closest index in stored_x
-            idx = np.searchsorted(self.stored_x, x_mouse)
-            if idx > 0 and (idx == len(self.stored_x) or abs(x_mouse - self.stored_x[idx - 1]) < abs(
-                    x_mouse - self.stored_x[idx])):
+            # We'll snap to the closest epoch from the first series (usually the main one)
+            main_s = self.series_data[0]
+            if len(main_s['x']) == 0: return
+
+            idx = np.searchsorted(main_s['x'], x_mouse)
+            if idx > 0 and (
+                    idx == len(main_s['x']) or abs(x_mouse - main_s['x'][idx - 1]) < abs(x_mouse - main_s['x'][idx])):
                 idx = idx - 1
 
-            if 0 <= idx < len(self.stored_x):
-                target_x = self.stored_x[idx]
-                target_y = self.stored_y[idx]
+            if 0 <= idx < len(main_s['x']):
+                target_x = main_s['x'][idx]
 
-                # Update lines to snap to point
-                self.vLine.setPos(target_x)
-                self.hLine.setPos(target_y)
-                self.vLine.show()
-                self.hLine.show()
+                # Build tooltip HTML and update snapping lines
+                tooltip_html = f"<div style='margin: 5px;'><b style='color: white;'>Epoch: {target_x}</b><br>"
 
-                # Format label
                 is_log_y = self.getPlotItem().getViewBox().state.get('logMode', [False, False])[1]
-                val_display = 10 ** target_y if is_log_y else target_y
 
-                self.label.setText(f"Epoch: {target_x}\nValue: {val_display:.4f}")
-                self.label.setPos(target_x, target_y)
+                for i, series in enumerate(self.series_data):
+                    # Check if this series has data at this index (validation might be shorter)
+                    # We search for the matching X in this specific series
+                    s_idx = np.searchsorted(series['x'], target_x)
+                    if s_idx < len(series['x']) and series['x'][s_idx] == target_x:
+                        val_y = series['y'][s_idx]
+                        self.hLines[i].setPos(val_y)
+                        self.hLines[i].show()
+
+                        # Calculate display value (inverse log if needed)
+                        val_display = 10 ** val_y if is_log_y else val_y
+                        tooltip_html += f"<span style='color: {series['color']};'>{series['name']}: {val_display:.4f}</span><br>"
+                    else:
+                        self.hLines[i].hide()
+
+                tooltip_html += "</div>"
+
+                self.vLine.setPos(target_x)
+                self.vLine.show()
+
+                self.label.setHtml(tooltip_html)
+                # Position label near the first series point
+                self.label.setPos(target_x, main_s['y'][idx])
                 self.label.show()
         else:
             self.vLine.hide()
-            self.hLine.hide()
+            for hl in self.hLines: hl.hide()
             self.label.hide()
 
 
@@ -350,20 +382,25 @@ class MainWindow(QMainWindow):
 
         plots_layout = QHBoxLayout()
 
-        # Plot 1: Loss
+        # Plot 1: Loss (Multi-line)
         self.loss_plot = CustomPlotWidget(title="Loss Trends (Log Scale)")
         self.loss_plot.setLogMode(y=True)
+        self.loss_plot.add_series("Train", COLORS['success'])
+        self.loss_plot.add_series("Val", COLORS['info'])
         self.curve_train_loss = self.loss_plot.plot(pen=pg.mkPen(COLORS['success'], width=2))
         self.curve_val_loss = self.loss_plot.plot(pen=pg.mkPen(COLORS['info'], width=2, style=Qt.PenStyle.DashLine))
 
-        # Plot 2: Components
+        # Plot 2: Components (Multi-line)
         self.comp_plot = CustomPlotWidget(title="VAE Components")
         self.comp_plot.setLogMode(y=True)
+        self.comp_plot.add_series("Recon", COLORS['info'])
+        self.comp_plot.add_series("KL", COLORS['error'])
         self.curve_recon = self.comp_plot.plot(pen=pg.mkPen(COLORS['info'], width=2))
         self.curve_kl = self.comp_plot.plot(pen=pg.mkPen(COLORS['error'], width=2))
 
         # Plot 3: Density
         self.density_plot = CustomPlotWidget(title="Generated Sample Density (%)")
+        self.density_plot.add_series("Density", COLORS['warning'])
         self.curve_density = self.density_plot.plot(pen=pg.mkPen(COLORS['warning'], width=2), symbol='o', symbolSize=5)
 
         plots_layout.addWidget(self.loss_plot)
@@ -420,22 +457,27 @@ class MainWindow(QMainWindow):
             self.card_recon.update_metric(f"{data['recon']:.2f}")
             self.card_kl.update_metric(f"{data['kl']:.2f}")
 
-            # Convert to log scale for snap data if needed
-            y_loss = np.log10(self.metrics_history['train_loss'])
-            y_recon = np.log10(self.metrics_history['train_recon'])
-
+            # Update plots
             self.curve_train_loss.setData(self.metrics_history['train_epochs'], self.metrics_history['train_loss'])
             self.curve_recon.setData(self.metrics_history['train_epochs'], self.metrics_history['train_recon'])
             self.curve_kl.setData(self.metrics_history['train_epochs'], self.metrics_history['train_kl'])
 
-            # Update Snap Data for tooltips
-            self.loss_plot.set_snap_data(self.metrics_history['train_epochs'], y_loss)
-            self.comp_plot.set_snap_data(self.metrics_history['train_epochs'], y_recon)
+            # Update Snap Data for tooltips (log scaled for the search)
+            self.loss_plot.update_series_data(0, self.metrics_history['train_epochs'],
+                                              np.log10(self.metrics_history['train_loss']))
+            self.comp_plot.update_series_data(0, self.metrics_history['train_epochs'],
+                                              np.log10(self.metrics_history['train_recon']))
+            self.comp_plot.update_series_data(1, self.metrics_history['train_epochs'],
+                                              np.log10(self.metrics_history['train_kl']))
 
         elif data['type'] == 'val':
             self.metrics_history['val_epochs'].append(data['epoch'])
             self.metrics_history['val_loss'].append(data['loss'])
             self.curve_val_loss.setData(self.metrics_history['val_epochs'], self.metrics_history['val_loss'])
+
+            # Update Val series snap data
+            self.loss_plot.update_series_data(1, self.metrics_history['val_epochs'],
+                                              np.log10(self.metrics_history['val_loss']))
 
         elif data['type'] == 'sample':
             self.metrics_history['density_steps'].append(self.current_epoch)
@@ -443,8 +485,8 @@ class MainWindow(QMainWindow):
             self.card_density.update_metric(f"{data['density']:.4f}%")
             self.curve_density.setData(self.metrics_history['density_steps'], self.metrics_history['density_vals'])
 
-            # Snap data for density plot
-            self.density_plot.set_snap_data(self.metrics_history['density_steps'], self.metrics_history['density_vals'])
+            self.density_plot.update_series_data(0, self.metrics_history['density_steps'],
+                                                 self.metrics_history['density_vals'])
 
     def _flush_log_buffer(self):
         if not self.log_buffer: return
