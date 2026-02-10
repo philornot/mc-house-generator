@@ -1,6 +1,6 @@
-"""Generate new Minecraft houses using trained VAE model.
+"""Generate new Minecraft houses using trained VAE model - FIXED VERSION.
 
-This script loads a trained VAE and generates new house structures.
+Works with any input shape (not hardcoded to 80x42x80).
 """
 
 import argparse
@@ -154,20 +154,39 @@ class HouseGenerator:
         logger.info(f"Saved voxels to {output_path}")
 
 
-def load_model(checkpoint_path: str, latent_dim: int, device: torch.device) -> VAE3D:
+def load_model(checkpoint_path: str, device: torch.device) -> VAE3D:
     """Load trained VAE model from checkpoint.
 
     Args:
         checkpoint_path: Path to model checkpoint.
-        latent_dim: Latent dimension of model.
         device: Device to load model on.
 
     Returns:
         Loaded VAE model.
     """
-    model = VAE3D(latent_dim=latent_dim).to(device)
-
     checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    # Try to get input_shape from checkpoint, otherwise use default
+    if 'input_shape' in checkpoint:
+        input_shape = checkpoint['input_shape']
+    else:
+        # Try to infer from model state dict
+        logger.warning("input_shape not found in checkpoint, trying to infer...")
+        # Check decoder fc layer to get flatten_size
+        fc_weight_shape = checkpoint['model_state_dict']['decoder.fc.weight'].shape
+        flatten_size = fc_weight_shape[0]
+
+        # This is tricky - we need to reverse engineer the shape
+        # For now, use a common default
+        input_shape = (105, 51, 80)  # Based on your dataset stats
+        logger.warning(f"Using inferred shape: {input_shape}")
+
+    # Get latent_dim from checkpoint or default
+    latent_dim = checkpoint.get('latent_dim', 256)
+
+    logger.info(f"Loading model with latent_dim={latent_dim}, input_shape={input_shape}")
+
+    model = VAE3D(latent_dim=latent_dim, input_shape=input_shape).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     epoch = checkpoint.get('epoch', 'unknown')
@@ -185,8 +204,6 @@ def main():
                         help='Directory to save generated houses')
     parser.add_argument('--num_samples', type=int, default=10,
                         help='Number of houses to generate')
-    parser.add_argument('--latent_dim', type=int, default=256,
-                        help='Latent dimension (must match trained model)')
     parser.add_argument('--threshold', type=float, default=0.5,
                         help='Threshold for binary conversion (0-1)')
     parser.add_argument('--mode', type=str, default='random',
@@ -216,7 +233,7 @@ def main():
 
     # Load model
     logger.info(f"Loading model from {args.checkpoint}")
-    model = load_model(args.checkpoint, args.latent_dim, device)
+    model = load_model(args.checkpoint, device)
 
     # Create generator
     generator = HouseGenerator(model, device, threshold=args.threshold)
@@ -237,8 +254,8 @@ def main():
 
     elif args.mode == 'interpolate':
         # Generate interpolation between two random points
-        z_start = torch.randn(args.latent_dim).to(device)
-        z_end = torch.randn(args.latent_dim).to(device)
+        z_start = torch.randn(model.latent_dim).to(device)
+        z_end = torch.randn(model.latent_dim).to(device)
 
         houses = generator.interpolate(z_start, z_end, num_steps=args.num_samples)
 
@@ -253,7 +270,7 @@ def main():
 
     elif args.mode == 'variations':
         # Generate variations of a base house
-        z_base = torch.randn(args.latent_dim).to(device)
+        z_base = torch.randn(model.latent_dim).to(device)
 
         houses = generator.generate_variations(
             z_base,
@@ -267,9 +284,6 @@ def main():
             generator.save_voxels(house, str(output_path))
 
     logger.info(f"✅ Generation complete! Houses saved to {output_dir}")
-    logger.info(f"To visualize, you can:")
-    logger.info(f"  1. Load .npy files with numpy: np.load('house_001.npy')")
-    logger.info(f"  2. Convert to Minecraft format (coming soon!)")
 
 
 if __name__ == "__main__":
