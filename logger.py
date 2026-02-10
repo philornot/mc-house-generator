@@ -6,6 +6,8 @@ Works in PyCharm and other terminals.
 
 import logging
 import sys
+from datetime import datetime
+from pathlib import Path
 
 
 class ColoredFormatter(logging.Formatter):
@@ -23,100 +25,69 @@ class ColoredFormatter(logging.Formatter):
     BOLD = '\033[1m'
 
     def format(self, record):
-        """Format log record with colors.
-
-        Args:
-            record: LogRecord to format.
-
-        Returns:
-            Formatted string with ANSI color codes.
-        """
+        """Format log record with colors."""
         # Get color for log level
         color = self.COLORS.get(record.levelname, '')
 
         # Format message
         log_message = super().format(record)
 
-        # Add color to level name
+        # Add color to message
         if color:
-            # Color the entire message
-            colored_message = f"{color}{log_message}{self.RESET}"
-            return colored_message
-
+            return f"{color}{log_message}{self.RESET}"
         return log_message
 
 
 def get_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
-    """Get or create a colored logger.
-
-    Args:
-        name: Logger name (usually __name__ of the module).
-        level: Logging level (default: INFO).
-
-    Returns:
-        Configured logger with colored output.
-    """
+    """Get a logger instance. Propagation is enabled to allow file logging via root."""
     logger = logging.getLogger(name or __name__)
-
-    # Only configure if no handlers exist (avoid duplicate handlers)
-    if not logger.handlers:
-        logger.setLevel(level)
-
-        # Create console handler - use stderr (same as tqdm) to avoid overlapping
-        console_handler = logging.StreamHandler(sys.stderr)
-        console_handler.setLevel(level)
-
-        # Create colored formatter
-        formatter = ColoredFormatter(
-            fmt='%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(formatter)
-
-        # Add handler to logger
-        logger.addHandler(console_handler)
-
-        # Prevent propagation to root logger
-        logger.propagate = False
-
+    logger.setLevel(level)
     return logger
 
 
 def setup_logging(level: int = logging.INFO):
-    """Setup colored logging for entire application.
-
-    Args:
-        level: Logging level to use (default: INFO).
     """
-    # Configure root logger with colored formatter
+    Setup root logger to handle both Console and File output.
+    Call this once at the start of your program (e.g., in train_vae.py).
+    """
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    # Remove existing handlers
+    # Clean up existing handlers to avoid duplicates if re-initialized
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Create console handler with colored formatter - use stderr (same as tqdm)
+    log_file = create_log_file()
+
+    # ---- console handler (with colors) ----
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(level)
-
-    formatter = ColoredFormatter(
+    console_formatter = ColoredFormatter(
         fmt='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
+
+    # ---- file handler (plain text for the dashboard/logs) ----
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(level)
+    file_formatter = logging.Formatter(
+        fmt='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_formatter)
 
     root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+    print(f"Logging to: {log_file}")
 
 
-if __name__ == "__main__":
-    # Test the colored logger
-    setup_logging(logging.DEBUG)
+def create_log_file():
+    """Creates the logs directory and a timestamped log file."""
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
 
-    logger = get_logger(__name__)
-
-    logger.debug("This is a DEBUG message")
-    logger.info("This is an INFO message")
-    logger.warning("This is a WARNING message")
-    logger.error("This is an ERROR message")
-    logger.critical("This is a CRITICAL message")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = logs_dir / f"run_{timestamp}.log"
+    return str(log_path)

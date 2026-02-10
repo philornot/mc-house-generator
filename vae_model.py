@@ -1,13 +1,5 @@
-"""3D Variational Autoencoder with Architectural Constraints for Minecraft houses.
-
-IMPROVEMENTS OVER BASIC VAE:
-1. Physics constraints - blocks need support underneath
-2. Connectivity constraints - no floating disconnected pieces
-3. Ground plane constraints - houses sit on ground
-4. Symmetry encouragement - houses tend to be symmetric
-5. Vertical structure - encourage proper floors/walls/roof
-
-These constraints help the model learn realistic house structures instead of random blobs.
+"""
+3D Variational Autoencoder for Minecraft houses.
 """
 
 from typing import Tuple, Dict
@@ -24,7 +16,11 @@ class Encoder3D(nn.Module):
     Works with any input size (dynamically calculates flatten size).
     """
 
-    def __init__(self, latent_dim: int = 256, input_shape: Tuple[int, int, int] = (80, 42, 80)):
+    def __init__(
+            self,
+            latent_dim: int = 256,
+            input_shape: Tuple[int, int, int] = (80, 42, 80),
+    ):
         """Initialize encoder.
 
         Args:
@@ -35,7 +31,6 @@ class Encoder3D(nn.Module):
 
         self.latent_dim = latent_dim
 
-        # Convolutional layers
         self.conv1 = nn.Conv3d(1, 32, kernel_size=4, stride=2, padding=1)
         self.bn1 = nn.BatchNorm3d(32)
 
@@ -48,10 +43,8 @@ class Encoder3D(nn.Module):
         self.conv4 = nn.Conv3d(128, 256, kernel_size=4, stride=2, padding=1)
         self.bn4 = nn.BatchNorm3d(256)
 
-        # Calculate flattened size dynamically
         self.flatten_size = self._get_flatten_size(input_shape)
 
-        # Latent space projections
         self.fc_mu = nn.Linear(self.flatten_size, latent_dim)
         self.fc_logvar = nn.Linear(self.flatten_size, latent_dim)
 
@@ -62,9 +55,8 @@ class Encoder3D(nn.Module):
             input_shape: Input shape (X, Y, Z).
 
         Returns:
-            Flattened size.
+            Flattened size after all conv layers.
         """
-        # Simulate forward pass to get output size
         x = torch.zeros(1, 1, *input_shape)
         x = self.conv1(x)
         x = self.conv2(x)
@@ -86,10 +78,8 @@ class Encoder3D(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
 
-        # Flatten
         x = x.view(x.size(0), -1)
 
-        # Get mu and logvar
         mu = self.fc_mu(x)
         logvar = self.fc_logvar(x)
 
@@ -103,7 +93,11 @@ class Decoder3D(nn.Module):
     Works with any output size.
     """
 
-    def __init__(self, latent_dim: int = 256, output_shape: Tuple[int, int, int] = (80, 42, 80)):
+    def __init__(
+            self,
+            latent_dim: int = 256,
+            output_shape: Tuple[int, int, int] = (80, 42, 80),
+    ):
         """Initialize decoder.
 
         Args:
@@ -114,18 +108,14 @@ class Decoder3D(nn.Module):
 
         self.output_shape = output_shape
 
-        # Calculate the size after encoder's conv layers
-        # After 4 stride-2 convs: size // 16
         self.feature_x = max(1, output_shape[0] // 16)
         self.feature_y = max(1, output_shape[1] // 16)
         self.feature_z = max(1, output_shape[2] // 16)
 
         self.flatten_size = 256 * self.feature_x * self.feature_y * self.feature_z
 
-        # Project latent vector to 3D feature map
         self.fc = nn.Linear(latent_dim, self.flatten_size)
 
-        # Transposed convolutions to upsample
         self.deconv1 = nn.ConvTranspose3d(256, 128, kernel_size=4, stride=2, padding=1)
         self.bn1 = nn.BatchNorm3d(128)
 
@@ -144,44 +134,35 @@ class Decoder3D(nn.Module):
             z: Latent vector [B, latent_dim].
 
         Returns:
-            Reconstructed voxel tensor [B, 1, X, Y, Z].
+            Reconstructed voxel tensor [B, 1, X, Y, Z] in range [0, 1].
         """
-        # Project and reshape
         x = self.fc(z)
         x = x.view(x.size(0), 256, self.feature_x, self.feature_y, self.feature_z)
 
-        # Upsample
         x = F.relu(self.bn1(self.deconv1(x)))
         x = F.relu(self.bn2(self.deconv2(x)))
         x = F.relu(self.bn3(self.deconv3(x)))
         x = self.deconv4(x)
 
-        # Apply sigmoid BEFORE any adjustments
+        # Sigmoid BEFORE any spatial adjustments - so output is always [0, 1]
         x = torch.sigmoid(x)
 
-        # Adjust to exact target shape if needed
-        current_shape = x.shape[2:]  # (X, Y, Z)
+        # Adjust to exact target shape if needed (crop or pad)
+        current_shape = x.shape[2:]
         target_shape = self.output_shape
 
-        # Crop or pad each dimension
         for dim_idx, (current, target) in enumerate(zip(current_shape, target_shape)):
             if current > target:
-                # Crop
-                if dim_idx == 0:  # X
-                    x = x[:, :, :target, :, :]
-                elif dim_idx == 1:  # Y
-                    x = x[:, :, :, :target, :]
-                else:  # Z
-                    x = x[:, :, :, :, :target]
+                slices = [slice(None)] * x.ndim
+                slices[dim_idx + 2] = slice(0, target)
+                x = x[slices]
             elif current < target:
-                # Pad
                 pad_amount = target - current
-                if dim_idx == 0:  # X
-                    x = F.pad(x, (0, 0, 0, 0, 0, pad_amount), value=0.0)
-                elif dim_idx == 1:  # Y
-                    x = F.pad(x, (0, 0, 0, pad_amount, 0, 0), value=0.0)
-                else:  # Z
-                    x = F.pad(x, (0, pad_amount, 0, 0, 0, 0), value=0.0)
+                # F.pad order: last dim first → (z_lo, z_hi, y_lo, y_hi, x_lo, x_hi)
+                pad = [0, 0, 0, 0, 0, 0]
+                pad_index = 2 * (2 - dim_idx)  # maps dim 0→4, 1→2, 2→0
+                pad[pad_index + 1] = pad_amount
+                x = F.pad(x, pad, value=0.0)
 
         return x
 
@@ -189,7 +170,15 @@ class Decoder3D(nn.Module):
 class VAE3D(nn.Module):
     """3D Variational Autoencoder with architectural constraints."""
 
-    def __init__(self, latent_dim: int = 256, input_shape: Tuple[int, int, int] = (80, 42, 80)):
+    # FIX: clamp logvar so std never blows up → prevents KL explosion
+    LOGVAR_MIN = -10.0
+    LOGVAR_MAX = 2.0
+
+    def __init__(
+            self,
+            latent_dim: int = 256,
+            input_shape: Tuple[int, int, int] = (80, 42, 80),
+    ):
         """Initialize VAE.
 
         Args:
@@ -204,7 +193,9 @@ class VAE3D(nn.Module):
         self.decoder = Decoder3D(latent_dim, input_shape)
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """Reparameterization trick for sampling from latent distribution.
+        """Reparameterization trick for sampling.
+
+        Clamps logvar to prevent posterior collapse caused by exploding KL.
 
         Args:
             mu: Mean of latent distribution [B, latent_dim].
@@ -213,50 +204,50 @@ class VAE3D(nn.Module):
         Returns:
             Sampled latent vector [B, latent_dim].
         """
+        logvar = torch.clamp(logvar, self.LOGVAR_MIN, self.LOGVAR_MAX)
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+            self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through VAE.
 
         Args:
-            x: Input voxel tensor [B, 1, 80, 42, 80].
+            x: Input voxel tensor [B, 1, X, Y, Z].
 
         Returns:
             Tuple of (reconstruction, mu, logvar).
         """
         mu, logvar = self.encoder(x)
+        logvar = torch.clamp(logvar, self.LOGVAR_MIN, self.LOGVAR_MAX)
         z = self.reparameterize(mu, logvar)
         reconstruction = self.decoder(z)
-
         return reconstruction, mu, logvar
 
     def sample(self, num_samples: int, device: torch.device) -> torch.Tensor:
-        """Generate new samples from the learned distribution.
+        """Generate new samples from the prior N(0, I).
 
         Args:
             num_samples: Number of samples to generate.
             device: Device to generate samples on.
 
         Returns:
-            Generated voxel tensors [num_samples, 1, 80, 42, 80].
+            Generated voxel tensors [num_samples, 1, X, Y, Z].
         """
         z = torch.randn(num_samples, self.latent_dim).to(device)
-
         with torch.no_grad():
-            samples = self.decoder(z)
-
-        return samples
+            return self.decoder(z)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode input to latent space (using mean, not sampling).
+        """Encode input to latent space (returns mean, no sampling).
 
         Args:
-            x: Input voxel tensor [B, 1, 80, 42, 80].
+            x: Input voxel tensor [B, 1, X, Y, Z].
 
         Returns:
-            Latent representation [B, latent_dim].
+            Latent mean vector [B, latent_dim].
         """
         mu, _ = self.encoder(x)
         return mu
@@ -268,74 +259,54 @@ class VAE3D(nn.Module):
             z: Latent vector [B, latent_dim].
 
         Returns:
-            Reconstructed voxel tensor [B, 1, 80, 42, 80].
+            Reconstructed voxel tensor [B, 1, X, Y, Z].
         """
         return self.decoder(z)
 
 
-def physics_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
-    """Penalize floating blocks (blocks without support underneath).
+# ---------------------------------------------------------------------------
+# Architectural constraint losses
+# ---------------------------------------------------------------------------
 
-    This encourages physically plausible structures where blocks
-    have support from blocks below them.
+def physics_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+    """Penalize floating blocks (no support directly below).
 
     Args:
-        voxels: Voxel tensor [B, 1, X, Y, Z] (after sigmoid, 0-1 range).
-        threshold: Threshold to consider block as solid.
+        voxels: Voxel tensor [B, 1, X, Y, Z] with values in [0, 1].
+        threshold: Value above which a voxel is considered solid.
 
     Returns:
-        Physics loss (scalar).
+        Scalar physics loss.
     """
-    # Binarize
     binary = (voxels > threshold).float()
-
-    # Get blocks that are not on ground level (Y > 0)
     blocks_above_ground = binary[:, :, :, 1:, :]
-
-    # Check if there's a block directly below
     blocks_below = binary[:, :, :, :-1, :]
-
-    # Blocks floating in air (no support below)
-    floating = blocks_above_ground * (1 - blocks_below)
-
+    floating = blocks_above_ground * (1.0 - blocks_below)
     return floating.mean()
 
 
 def connectivity_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
-    """Penalize isolated blocks (blocks with no neighbors).
-
-    Encourages connected structures instead of scattered blocks.
+    """Penalize isolated blocks (no 6-connected neighbours).
 
     Args:
-        voxels: Voxel tensor [B, 1, X, Y, Z] (after sigmoid, 0-1 range).
-        threshold: Threshold to consider block as solid.
+        voxels: Voxel tensor [B, 1, X, Y, Z] with values in [0, 1].
+        threshold: Value above which a voxel is considered solid.
 
     Returns:
-        Connectivity loss (scalar).
+        Scalar connectivity loss.
     """
-    # Binarize
     binary = (voxels > threshold).float()
 
-    # Check 6 neighbors (3D connectivity)
     neighbors = torch.zeros_like(binary)
-
-    # +X direction
     neighbors[:, :, :-1, :, :] += binary[:, :, 1:, :, :]
-    # -X direction
     neighbors[:, :, 1:, :, :] += binary[:, :, :-1, :, :]
-    # +Y direction
     neighbors[:, :, :, :-1, :] += binary[:, :, :, 1:, :]
-    # -Y direction
     neighbors[:, :, :, 1:, :] += binary[:, :, :, :-1, :]
-    # +Z direction
     neighbors[:, :, :, :, :-1] += binary[:, :, :, :, 1:]
-    # -Z direction
     neighbors[:, :, :, :, 1:] += binary[:, :, :, :, :-1]
 
-    # Penalize blocks with no neighbors (except if density is very low)
     isolated = binary * (neighbors == 0).float()
 
-    # Only penalize if there are enough blocks
     if binary.sum() > 10:
         return isolated.mean()
     return torch.tensor(0.0, device=voxels.device)
@@ -344,25 +315,17 @@ def connectivity_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Ten
 def ground_plane_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
     """Encourage blocks at ground level (Y=0).
 
-    Houses should sit on the ground, not float in midair.
-
     Args:
-        voxels: Voxel tensor [B, 1, X, Y, Z] (after sigmoid, 0-1 range).
-        threshold: Threshold to consider block as solid.
+        voxels: Voxel tensor [B, 1, X, Y, Z] with values in [0, 1].
+        threshold: Value above which a voxel is considered solid.
 
     Returns:
-        Ground plane loss (scalar).
+        Scalar ground-plane loss.
     """
-    # Binarize
     binary = (voxels > threshold).float()
-
-    # Count blocks at ground level
     ground_blocks = binary[:, :, :, 0, :].sum()
-
-    # Count total blocks
     total_blocks = binary.sum()
 
-    # Encourage at least 5% of blocks on ground
     if total_blocks > 0:
         ground_ratio = ground_blocks / total_blocks
         target_ratio = 0.05
@@ -372,46 +335,33 @@ def ground_plane_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Ten
 
 
 def symmetry_loss(voxels: torch.Tensor) -> torch.Tensor:
-    """Encourage symmetric structures along Z axis.
-
-    Many houses are symmetric, this helps learn that pattern.
+    """Encourage symmetry along the Z axis.
 
     Args:
-        voxels: Voxel tensor [B, 1, X, Y, Z] (after sigmoid, 0-1 range).
+        voxels: Voxel tensor [B, 1, X, Y, Z] with values in [0, 1].
 
     Returns:
-        Symmetry loss (scalar).
+        Scalar symmetry loss.
     """
-    # Flip along Z axis
     flipped = torch.flip(voxels, dims=[4])
-
-    # MSE between original and flipped
     return F.mse_loss(voxels, flipped)
 
 
-def vertical_structure_loss(voxels: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
-    """Encourage vertical continuity (walls, pillars).
-
-    Houses have walls that go from ground to roof, not random blocks.
+def vertical_structure_loss(
+        voxels: torch.Tensor, threshold: float = 0.5
+) -> torch.Tensor:
+    """Penalize excessive vertical fragmentation (too many 0↔1 transitions).
 
     Args:
-        voxels: Voxel tensor [B, 1, X, Y, Z] (after sigmoid, 0-1 range).
-        threshold: Threshold to consider block as solid.
+        voxels: Voxel tensor [B, 1, X, Y, Z] with values in [0, 1].
+        threshold: Value above which a voxel is considered solid.
 
     Returns:
-        Vertical structure loss (scalar).
+        Scalar vertical-structure loss.
     """
-    # Binarize
     binary = (voxels > threshold).float()
-
-    # For each X-Z position, check if blocks form continuous vertical segments
-    # Count transitions from 0->1 and 1->0 along Y axis
     diff = torch.abs(binary[:, :, :, 1:, :] - binary[:, :, :, :-1, :])
-
-    # Too many transitions = fragmented structure
-    # Penalize excessive transitions
     transitions = diff.sum() / (binary.sum() + 1e-6)
-
     return transitions
 
 
@@ -427,47 +377,46 @@ def vae_loss(
         symmetry_weight: float = 0.1,
         vertical_weight: float = 0.1,
 ) -> Dict[str, torch.Tensor]:
-    """Calculate VAE loss with architectural constraints.
+    """Calculate total VAE loss with architectural constraints.
 
     Args:
-        reconstruction: Reconstructed output [B, 1, 80, 42, 80].
-        x: Original input [B, 1, 80, 42, 80].
+        reconstruction: Reconstructed output [B, 1, X, Y, Z].
+        x: Original input [B, 1, X, Y, Z].
         mu: Latent mean [B, latent_dim].
-        logvar: Latent log variance [B, latent_dim].
-        kl_weight: Weight for KL divergence term.
+        logvar: Latent log-variance [B, latent_dim] (already clamped by forward()).
+        kl_weight: Scalar weight for KL term (use annealing in trainer).
         physics_weight: Weight for physics constraint.
         connectivity_weight: Weight for connectivity constraint.
-        ground_weight: Weight for ground plane constraint.
+        ground_weight: Weight for ground-plane constraint.
         symmetry_weight: Weight for symmetry encouragement.
-        vertical_weight: Weight for vertical structure.
+        vertical_weight: Weight for vertical-structure constraint.
 
     Returns:
-        Dictionary with all loss components.
+        Dictionary with keys: total_loss, reconstruction_loss, kl_loss,
+        physics_loss, connectivity_loss, ground_loss, symmetry_loss, vertical_loss.
     """
-    # Binary cross-entropy for reconstruction
-    bce_loss = F.binary_cross_entropy(reconstruction, x, reduction='sum')
-    bce_loss = bce_loss / x.size(0)
+    bce_loss = F.binary_cross_entropy(reconstruction, x, reduction='sum') / x.size(0)
 
-    # KL divergence
-    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    kl_loss = kl_loss / x.size(0)
+    # Clamp logvar again defensively before computing KL
+    logvar_clamped = torch.clamp(logvar, VAE3D.LOGVAR_MIN, VAE3D.LOGVAR_MAX)
+    kl_loss = -0.5 * torch.sum(
+        1 + logvar_clamped - mu.pow(2) - logvar_clamped.exp()
+    ) / x.size(0)
 
-    # Architectural constraints
     phys_loss = physics_loss(reconstruction)
     conn_loss = connectivity_loss(reconstruction)
     gnd_loss = ground_plane_loss(reconstruction)
     sym_loss = symmetry_loss(reconstruction)
     vert_loss = vertical_structure_loss(reconstruction)
 
-    # Total loss
     total_loss = (
-            bce_loss +
-            kl_weight * kl_loss +
-            physics_weight * phys_loss +
-            connectivity_weight * conn_loss +
-            ground_weight * gnd_loss +
-            symmetry_weight * sym_loss +
-            vertical_weight * vert_loss
+            bce_loss
+            + kl_weight * kl_loss
+            + physics_weight * phys_loss
+            + connectivity_weight * conn_loss
+            + ground_weight * gnd_loss
+            + symmetry_weight * sym_loss
+            + vertical_weight * vert_loss
     )
 
     return {
@@ -483,33 +432,24 @@ def vae_loss(
 
 
 def main():
-    """Test VAE architecture."""
-    print("Testing 3D VAE with constraints...")
+    """Quick smoke test of the VAE architecture."""
+    print("Testing 3D VAE...")
 
-    # Create model
     model = VAE3D(latent_dim=256, input_shape=(80, 42, 80))
+    x = torch.rand(4, 1, 80, 42, 80)
 
-    # Test with random input (normalized to 0-1)
-    batch_size = 4
-    x = torch.rand(batch_size, 1, 80, 42, 80)  # Use rand instead of randn
-
-    # Forward pass
     reconstruction, mu, logvar = model(x)
+    print(f"Input:          {x.shape}")
+    print(f"Reconstruction: {reconstruction.shape}")
+    print(f"logvar range:   [{logvar.min():.2f}, {logvar.max():.2f}]")
 
-    print(f"Input shape: {x.shape}")
-    print(f"Reconstruction shape: {reconstruction.shape}")
-
-    # Test loss with constraints
     losses = vae_loss(reconstruction, x, mu, logvar)
-
-    print(f"\nLosses:")
+    print("\nLosses:")
     for key, value in losses.items():
         print(f"  {key}: {value.item():.4f}")
 
-    # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nTotal parameters: {total_params:,}")
-
     print("\n✅ VAE architecture test passed!")
 
 
