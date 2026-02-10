@@ -1,6 +1,7 @@
-"""Training script for 3D VAE house generator.
+"""Training script for 3D VAE with architectural constraints.
 
-This script trains the VAE model on the house dataset and saves checkpoints.
+This version uses physics-based and architectural constraints to encourage
+realistic house structures instead of random blobs.
 """
 
 import argparse
@@ -12,10 +13,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+from vae_model import VAE3D, vae_loss
 
 from house_dataset import HouseVoxelDataset
 from logger import get_logger, setup_logging
-from vae_model import VAE3D, vae_loss
 
 logger = get_logger(__name__)
 
@@ -32,7 +33,12 @@ class VAETrainer:
             device: torch.device,
             checkpoint_dir: str = "checkpoints",
             log_dir: str = "runs",
-            kl_weight: float = 0.001
+            kl_weight: float = 0.001,
+            physics_weight: float = 0.5,
+            connectivity_weight: float = 0.3,
+            ground_weight: float = 0.2,
+            symmetry_weight: float = 0.1,
+            vertical_weight: float = 0.1,
     ):
         """Initialize trainer.
 
@@ -45,6 +51,11 @@ class VAETrainer:
             checkpoint_dir: Directory to save checkpoints.
             log_dir: Directory for tensorboard logs.
             kl_weight: Weight for KL divergence loss term.
+            physics_weight: Weight for physics constraints.
+            connectivity_weight: Weight for connectivity constraints.
+            ground_weight: Weight for ground plane constraints.
+            symmetry_weight: Weight for symmetry encouragement.
+            vertical_weight: Weight for vertical structure.
         """
         self.model = model
         self.train_loader = train_loader
@@ -52,6 +63,11 @@ class VAETrainer:
         self.optimizer = optimizer
         self.device = device
         self.kl_weight = kl_weight
+        self.physics_weight = physics_weight
+        self.connectivity_weight = connectivity_weight
+        self.ground_weight = ground_weight
+        self.symmetry_weight = symmetry_weight
+        self.vertical_weight = vertical_weight
 
         # Setup directories
         self.checkpoint_dir = Path(checkpoint_dir)
@@ -64,6 +80,15 @@ class VAETrainer:
         self.current_epoch = 0
         self.best_val_loss = float('inf')
 
+        # Log constraint weights
+        logger.info("Constraint weights:")
+        logger.info(f"  KL: {kl_weight}")
+        logger.info(f"  Physics: {physics_weight}")
+        logger.info(f"  Connectivity: {connectivity_weight}")
+        logger.info(f"  Ground: {ground_weight}")
+        logger.info(f"  Symmetry: {symmetry_weight}")
+        logger.info(f"  Vertical: {vertical_weight}")
+
     def train_epoch(self) -> Dict[str, float]:
         """Train for one epoch.
 
@@ -72,9 +97,17 @@ class VAETrainer:
         """
         self.model.train()
 
-        total_loss = 0
-        total_recon_loss = 0
-        total_kl_loss = 0
+        # Accumulators for all loss components
+        loss_accumulators = {
+            'total_loss': 0.0,
+            'reconstruction_loss': 0.0,
+            'kl_loss': 0.0,
+            'physics_loss': 0.0,
+            'connectivity_loss': 0.0,
+            'ground_loss': 0.0,
+            'symmetry_loss': 0.0,
+            'vertical_loss': 0.0,
+        }
         num_batches = 0
 
         pbar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch}",
@@ -87,32 +120,36 @@ class VAETrainer:
             self.optimizer.zero_grad()
             reconstruction, mu, logvar = self.model(voxels)
 
-            # Calculate loss
-            losses = vae_loss(reconstruction, voxels, mu, logvar, self.kl_weight)
+            # Calculate loss with all constraints
+            losses = vae_loss(
+                reconstruction, voxels, mu, logvar,
+                kl_weight=self.kl_weight,
+                physics_weight=self.physics_weight,
+                connectivity_weight=self.connectivity_weight,
+                ground_weight=self.ground_weight,
+                symmetry_weight=self.symmetry_weight,
+                vertical_weight=self.vertical_weight,
+            )
 
             # Backward pass
             losses['total_loss'].backward()
             self.optimizer.step()
 
             # Accumulate losses
-            total_loss += losses['total_loss'].item()
-            total_recon_loss += losses['reconstruction_loss'].item()
-            total_kl_loss += losses['kl_loss'].item()
+            for key in loss_accumulators:
+                loss_accumulators[key] += losses[key].item()
             num_batches += 1
 
-            # Update progress bar
+            # Update progress bar with main losses
             pbar.set_postfix({
                 'loss': losses['total_loss'].item(),
                 'recon': losses['reconstruction_loss'].item(),
-                'kl': losses['kl_loss'].item()
+                'phys': losses['physics_loss'].item(),
+                'conn': losses['connectivity_loss'].item(),
             })
 
         # Calculate averages
-        avg_losses = {
-            'total_loss': total_loss / num_batches,
-            'reconstruction_loss': total_recon_loss / num_batches,
-            'kl_loss': total_kl_loss / num_batches
-        }
+        avg_losses = {k: v / num_batches for k, v in loss_accumulators.items()}
 
         return avg_losses
 
@@ -128,9 +165,16 @@ class VAETrainer:
 
         self.model.eval()
 
-        total_loss = 0
-        total_recon_loss = 0
-        total_kl_loss = 0
+        loss_accumulators = {
+            'total_loss': 0.0,
+            'reconstruction_loss': 0.0,
+            'kl_loss': 0.0,
+            'physics_loss': 0.0,
+            'connectivity_loss': 0.0,
+            'ground_loss': 0.0,
+            'symmetry_loss': 0.0,
+            'vertical_loss': 0.0,
+        }
         num_batches = 0
 
         for batch in self.val_loader:
@@ -140,20 +184,23 @@ class VAETrainer:
             reconstruction, mu, logvar = self.model(voxels)
 
             # Calculate loss
-            losses = vae_loss(reconstruction, voxels, mu, logvar, self.kl_weight)
+            losses = vae_loss(
+                reconstruction, voxels, mu, logvar,
+                kl_weight=self.kl_weight,
+                physics_weight=self.physics_weight,
+                connectivity_weight=self.connectivity_weight,
+                ground_weight=self.ground_weight,
+                symmetry_weight=self.symmetry_weight,
+                vertical_weight=self.vertical_weight,
+            )
 
             # Accumulate losses
-            total_loss += losses['total_loss'].item()
-            total_recon_loss += losses['reconstruction_loss'].item()
-            total_kl_loss += losses['kl_loss'].item()
+            for key in loss_accumulators:
+                loss_accumulators[key] += losses[key].item()
             num_batches += 1
 
         # Calculate averages
-        avg_losses = {
-            'total_loss': total_loss / num_batches,
-            'reconstruction_loss': total_recon_loss / num_batches,
-            'kl_loss': total_kl_loss / num_batches
-        }
+        avg_losses = {k: v / num_batches for k, v in loss_accumulators.items()}
 
         return avg_losses
 
@@ -170,7 +217,14 @@ class VAETrainer:
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'best_val_loss': self.best_val_loss,
-            'kl_weight': self.kl_weight
+            'latent_dim': self.model.latent_dim,
+            'input_shape': self.model.input_shape,
+            'kl_weight': self.kl_weight,
+            'physics_weight': self.physics_weight,
+            'connectivity_weight': self.connectivity_weight,
+            'ground_weight': self.ground_weight,
+            'symmetry_weight': self.symmetry_weight,
+            'vertical_weight': self.vertical_weight,
         }
 
         torch.save(checkpoint, checkpoint_path)
@@ -188,7 +242,7 @@ class VAETrainer:
             logger.warning(f"Checkpoint {checkpoint_path} not found")
             return
 
-        checkpoint = torch.load(checkpoint_path)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -217,13 +271,18 @@ class VAETrainer:
             # Train
             train_losses = self.train_epoch()
 
-            # Log training losses
+            # Log all training losses
             for key, value in train_losses.items():
                 self.writer.add_scalar(f'train/{key}', value, epoch)
 
-            logger.info(f"Epoch {epoch} - Train Loss: {train_losses['total_loss']:.4f} "
-                        f"(Recon: {train_losses['reconstruction_loss']:.4f}, "
-                        f"KL: {train_losses['kl_loss']:.4f})")
+            # Print main losses
+            logger.info(
+                f"Epoch {epoch} - Train Loss: {train_losses['total_loss']:.4f} "
+                f"(Recon: {train_losses['reconstruction_loss']:.4f}, "
+                f"KL: {train_losses['kl_loss']:.4f}, "
+                f"Physics: {train_losses['physics_loss']:.4f}, "
+                f"Connect: {train_losses['connectivity_loss']:.4f})"
+            )
 
             # Validate
             if self.val_loader:
@@ -233,9 +292,11 @@ class VAETrainer:
                 for key, value in val_losses.items():
                     self.writer.add_scalar(f'val/{key}', value, epoch)
 
-                logger.info(f"Epoch {epoch} - Val Loss: {val_losses['total_loss']:.4f} "
-                            f"(Recon: {val_losses['reconstruction_loss']:.4f}, "
-                            f"KL: {val_losses['kl_loss']:.4f})")
+                logger.info(
+                    f"Epoch {epoch} - Val Loss: {val_losses['total_loss']:.4f} "
+                    f"(Recon: {val_losses['reconstruction_loss']:.4f}, "
+                    f"Physics: {val_losses['physics_loss']:.4f})"
+                )
 
                 # Save best model
                 if val_losses['total_loss'] < self.best_val_loss:
@@ -269,19 +330,37 @@ class VAETrainer:
         # Generate sample
         sample = self.model.sample(num_samples=1, device=self.device)
 
-        # Convert to binary (threshold at 0.5)
+        # Convert to binary
         sample_binary = (sample > 0.5).float()
 
-        # Log density
+        # Calculate metrics
         density = sample_binary.mean().item()
         self.writer.add_scalar('sample/density', density, epoch)
 
-        logger.info(f"Generated sample density: {density:.2%}")
+        # Check physics violations
+        from vae_model import (
+            physics_loss, connectivity_loss, ground_plane_loss
+        )
+
+        phys = physics_loss(sample).item()
+        conn = connectivity_loss(sample).item()
+        gnd = ground_plane_loss(sample).item()
+
+        self.writer.add_scalar('sample/physics_violations', phys, epoch)
+        self.writer.add_scalar('sample/isolated_blocks', conn, epoch)
+        self.writer.add_scalar('sample/ground_contact', gnd, epoch)
+
+        logger.info(
+            f"Generated sample - Density: {density:.2%}, "
+            f"Physics: {phys:.4f}, Connectivity: {conn:.4f}"
+        )
 
 
 def main():
     """Main training function."""
-    parser = argparse.ArgumentParser(description='Train 3D VAE for house generation')
+    parser = argparse.ArgumentParser(
+        description='Train 3D VAE with architectural constraints'
+    )
     parser.add_argument('--houses_dir', type=str, default='houses',
                         help='Directory with house files')
     parser.add_argument('--batch_size', type=int, default=4,
@@ -294,6 +373,16 @@ def main():
                         help='Learning rate')
     parser.add_argument('--kl_weight', type=float, default=0.001,
                         help='Weight for KL divergence loss')
+    parser.add_argument('--physics_weight', type=float, default=0.5,
+                        help='Weight for physics constraints')
+    parser.add_argument('--connectivity_weight', type=float, default=0.3,
+                        help='Weight for connectivity constraints')
+    parser.add_argument('--ground_weight', type=float, default=0.2,
+                        help='Weight for ground plane constraints')
+    parser.add_argument('--symmetry_weight', type=float, default=0.1,
+                        help='Weight for symmetry encouragement')
+    parser.add_argument('--vertical_weight', type=float, default=0.1,
+                        help='Weight for vertical structure')
     parser.add_argument('--val_split', type=float, default=0.2,
                         help='Validation split ratio (0.0-1.0)')
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
@@ -343,7 +432,7 @@ def main():
     else:
         train_dataset = full_dataset
         val_dataset = None
-        logger.info(f"No validation split, using all {len(train_dataset)} samples for training")
+        logger.info(f"No validation split")
 
     # Create dataloaders
     train_loader = DataLoader(
@@ -366,7 +455,12 @@ def main():
 
     # Create model
     logger.info(f"Creating VAE with latent_dim={args.latent_dim}")
-    model = VAE3D(latent_dim=args.latent_dim).to(device)
+
+    # Get input shape from dataset
+    input_shape = full_dataset.max_size
+    logger.info(f"Model will use input shape: {input_shape}")
+
+    model = VAE3D(latent_dim=args.latent_dim, input_shape=input_shape).to(device)
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
@@ -384,7 +478,12 @@ def main():
         device=device,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
-        kl_weight=args.kl_weight
+        kl_weight=args.kl_weight,
+        physics_weight=args.physics_weight,
+        connectivity_weight=args.connectivity_weight,
+        ground_weight=args.ground_weight,
+        symmetry_weight=args.symmetry_weight,
+        vertical_weight=args.vertical_weight,
     )
 
     # Resume from checkpoint if specified

@@ -25,7 +25,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/generate_houses.py" />
-    <option name="PARAMETERS" value="--checkpoint checkpoints/final_model.pth --num_samples 10" />
+    <option name="PARAMETERS" value="--checkpoint checkpoints/best_model.pth --num_samples 10" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
