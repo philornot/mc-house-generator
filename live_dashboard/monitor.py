@@ -316,7 +316,7 @@ class MetricDisplayCard(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Professional VAE Training Monitor")
+        self.setWindowTitle("VAE Training Monitor")
         self.resize(CONFIG['WINDOW_WIDTH'], CONFIG['WINDOW_HEIGHT'])
         self.setStyleSheet(APP_STYLESHEET)
 
