@@ -1,523 +1,383 @@
 """
 Real-time Training Monitor for VAE Models.
 
-This application launches a standalone GUI window to visualize training metrics
-parsed from a live log file. It utilizes PyQt6 for the interface and
-PyQtGraph for high-performance plotting.
-
-Designed for a "cyberpunk/terminal" aesthetic with high readability.
+This module provides a professional GUI for monitoring Variational Autoencoder (VAE)
+training processes. It handles log parsing in a background thread and visualizes
+metrics using high-performance pyqtgraph plotting.
 """
 
-import sys
-import os
-import time
-import re
 import glob
-from typing import Optional, Dict, List
-
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QFrame, QTextEdit, QGridLayout,
-    QFileDialog, QPushButton
-)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
-from PyQt6.QtGui import QTextCursor
+import os
+import re
+import sys
+from collections import deque
+from typing import Optional, Dict, Any
 
 import pyqtgraph as pg
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt6.QtGui import QTextCursor, QColor
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout,
+    QHBoxLayout, QLabel, QFrame, QTextEdit,
+    QFileDialog, QPushButton, QGraphicsDropShadowEffect
+)
 
 # ==============================================================================
-# CONFIGURATION
+# GLOBAL CONFIGURATION
 # ==============================================================================
 
 CONFIG = {
-    # Directory where log files are stored. Use '.' for current directory.
-    'LOG_DIR': '..logs/',
-
-    # Pattern to match log files (e.g., 'run_*.log').
+    'LOG_DIR': '../logs/',  # Directory relative to project root
     'LOG_PATTERN': 'run_*.log',
-
-    # Update frequency for file checking (in seconds).
-    'REFRESH_RATE': 0.1,
-
-    # Max lines to keep in the log console to save memory.
-    'MAX_LOG_LINES': 1000,
-
-    # Default window size.
-    'WINDOW_SIZE': (1280, 800)
+    'REFRESH_INTERVAL_MS': 100,
+    'MAX_LOG_HISTORY': 1000,
+    'WINDOW_WIDTH': 1400,
+    'WINDOW_HEIGHT': 900
 }
-
-# ==============================================================================
-# THEME & STYLING
-# ==============================================================================
 
 COLORS = {
-    'bg': '#0a0c0f',         # Deepest background
-    'surface': '#13171e',    # Panel background
-    'border': '#2a3b4d',     # Subtle borders
-    'accent_1': '#00ff9d',   # Success/Green (Terminal style)
-    'accent_2': '#00d0ff',   # Info/Cyan
-    'accent_3': '#ff5c5c',   # Error/Divergence Red
-    'text_main': '#e0e6ed',  # Primary text
-    'text_dim': '#5c6e7f',   # Secondary/Metadata text
-    'grid': '#2a3b4d'        # Chart grid lines
+    'background': '#0B0E14',
+    'surface': '#151921',
+    'border': '#252A34',
+    'primary': '#7C4DFF',
+    'success': '#00E676',
+    'info': '#00B0FF',
+    'error': '#FF5252',
+    'text_primary': '#E1E4E8',
+    'text_secondary': '#959DA5'
 }
 
-STYLE_SHEET = f"""
+APP_STYLESHEET = f"""
 QMainWindow {{
-    background-color: {COLORS['bg']};
+    background-color: {COLORS['background']};
 }}
 QWidget {{
-    background-color: {COLORS['bg']};
-    color: {COLORS['text_main']};
-    font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+    color: {COLORS['text_primary']};
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}}
+QFrame#MetricCard {{
+    background-color: {COLORS['surface']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+}}
+QTextEdit#LogConsole {{
+    background-color: {COLORS['surface']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 4px;
+    color: {COLORS['text_secondary']};
+    font-family: 'Fira Code', 'Consolas', monospace;
     font-size: 10pt;
-}}
-QFrame {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 0px;
-}}
-QLabel {{
-    border: none;
-    background-color: transparent;
-    font-weight: normal; 
-}}
-QTextEdit {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    color: {COLORS['text_main']};
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 9pt;
+    line-height: 1.4;
 }}
 QPushButton {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['accent_2']};
-    color: {COLORS['accent_2']};
-    padding: 6px 12px;
-    border-radius: 0px;
-    font-family: 'JetBrains Mono';
+    background-color: {COLORS['primary']};
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-weight: 600;
 }}
 QPushButton:hover {{
-    background-color: {COLORS['accent_2']}15;
+    background-color: #6C3BEF;
 }}
 """
 
 
-class LogWorker(QThread):
-    """
-    Background worker thread that tails a log file and parses lines in real-time.
+# ==============================================================================
+# DATA PROCESSING ENGINE
+# ==============================================================================
 
-    Attributes:
-        data_updated (pyqtSignal): Emitted when a training metric is parsed.
-        log_line_added (pyqtSignal): Emitted when a new raw line is read.
-    """
-    data_updated = pyqtSignal(dict)
-    log_line_added = pyqtSignal(str)
+class LogParserThread(QThread):
+    metrics_received = pyqtSignal(dict)
+    log_received = pyqtSignal(str)
 
     def __init__(self, log_path: str):
         super().__init__()
         self.log_path = log_path
-        self.running = True
-        self.file_pos = 0
+        self._is_running = True
+        self._file_offset = 0
 
-        # Regex patterns derived from the provided log format
-        self.re_train = re.compile(
-            r"Epoch\s+(\d+)\s*-\s*Train Loss:\s*([\d.]+)\s*\(Recon:\s*([\d.]+),\s*KL:\s*([\d.]+)"
+        # Flexible regex for Train and Val lines
+        self._re_train = re.compile(
+            r"Epoch\s+(?P<epoch>\d+)\s*-\s*Train Loss:\s*(?P<loss>[\d.]+)\s*\(Recon:\s*(?P<recon>[\d.]+),\s*KL:\s*(?P<kl>[\d.]+)"
         )
-        self.re_val = re.compile(
-            r"Epoch\s+(\d+)\s*-\s*Val Loss:\s*([\d.]+)"
-        )
-        self.re_sample = re.compile(
-            r"Generated sample - Density:\s*([\d.]+)%"
+        self._re_val = re.compile(
+            r"Epoch\s+(?P<epoch>\d+)\s*-\s*Val Loss:\s*(?P<loss>[\d.]+)"
         )
 
     def run(self):
-        """Main execution loop for the thread."""
-        while self.running:
+        while self._is_running:
             if not os.path.exists(self.log_path):
-                time.sleep(1)
+                self.msleep(500)
                 continue
 
-            with open(self.log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                f.seek(self.file_pos)
-                lines = f.readlines()
-                self.file_pos = f.tell()
+            try:
+                # Always re-check size to handle potential file rotations or truncation
+                with open(self.log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    f.seek(self._file_offset)
+                    while True:
+                        line = f.readline()
+                        if not line:
+                            break
 
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
+                        clean_line = line.strip()
+                        if clean_line:
+                            self.log_received.emit(clean_line)
+                            self._parse_metrics(clean_line)
 
-                    self.log_line_added.emit(line)
-                    self._parse_line(line)
+                    self._file_offset = f.tell()
+            except Exception as e:
+                print(f"Log parsing error: {e}")
 
-            time.sleep(CONFIG['REFRESH_RATE'])
+            self.msleep(CONFIG['REFRESH_INTERVAL_MS'])
 
-    def _parse_line(self, line: str):
-        """Parses a single log line and emits structured data."""
-        data_packet = {}
-
-        # 1. Parse Training Data
-        m_train = self.re_train.search(line)
-        if m_train:
-            data_packet['type'] = 'train'
-            data_packet['epoch'] = int(m_train.group(1))
-            data_packet['loss'] = float(m_train.group(2))
-            data_packet['recon'] = float(m_train.group(3))
-            data_packet['kl'] = float(m_train.group(4))
-            self.data_updated.emit(data_packet)
-            return
-
-        # 2. Parse Validation Data
-        m_val = self.re_val.search(line)
-        if m_val:
-            data_packet['type'] = 'val'
-            data_packet['epoch'] = int(m_val.group(1))
-            data_packet['val_loss'] = float(m_val.group(2))
-            self.data_updated.emit(data_packet)
-            return
-
-        # 3. Parse Sampling Data
-        m_sample = self.re_sample.search(line)
-        if m_sample:
-            data_packet['type'] = 'sample'
-            data_packet['density'] = float(m_sample.group(1))
-            self.data_updated.emit(data_packet)
+    def _parse_metrics(self, line: str):
+        if match := self._re_train.search(line):
+            data = match.groupdict()
+            self.metrics_received.emit({
+                'type': 'train',
+                'epoch': int(data['epoch']),
+                'loss': float(data['loss']),
+                'recon': float(data['recon']),
+                'kl': float(data['kl'])
+            })
+        elif match := self._re_val.search(line):
+            data = match.groupdict()
+            self.metrics_received.emit({
+                'type': 'val',
+                'epoch': int(data['epoch']),
+                'loss': float(data['loss'])
+            })
 
     def stop(self):
-        """Stops the worker safely."""
-        self.running = False
+        self._is_running = False
 
 
-class StatCard(QFrame):
-    """
-    A UI widget representing a single metric card.
-    """
+# ==============================================================================
+# UI COMPONENTS
+# ==============================================================================
 
-    def __init__(self, title: str, accent_color: str, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.Shape.NoFrame)
+class MetricDisplayCard(QFrame):
+    def __init__(self, label: str, accent_color: str):
+        super().__init__()
+        self.setObjectName("MetricCard")
+        self.setMinimumWidth(200)
 
-        # Internal layout
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(5)
 
-        # Title
-        self.lbl_title = QLabel(title.upper())
-        self.lbl_title.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 8pt; letter-spacing: 1px;")
+        title = QLabel(label.upper())
+        title.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
 
-        # Main Value
-        self.lbl_value = QLabel("—")
-        self.lbl_value.setStyleSheet(
-            f"color: {accent_color}; font-size: 18pt; font-family: 'JetBrains Mono';"
-        )
+        self.value_label = QLabel("N/A")
+        self.value_label.setStyleSheet(f"color: {accent_color}; font-size: 24px; font-weight: 800;")
 
-        # Subtext (e.g., 'epoch 50')
-        self.lbl_sub = QLabel("waiting...")
-        self.lbl_sub.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 8pt;")
+        self.shadow = QGraphicsDropShadowEffect()
+        self.shadow.setBlurRadius(15)
+        self.shadow.setColor(QColor(accent_color))
+        self.shadow.setOffset(0, 0)
+        self.value_label.setGraphicsEffect(self.shadow)
 
-        layout.addWidget(self.lbl_title)
-        layout.addWidget(self.lbl_value)
-        layout.addWidget(self.lbl_sub)
-        self.setLayout(layout)
+        self.status_label = QLabel("Initializing...")
+        self.status_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11px;")
 
-        # Decorative left border
-        self.setStyleSheet(
-            f"QFrame {{ border-left: 2px solid {accent_color}; background-color: {COLORS['surface']}; }}"
-        )
+        layout.addWidget(title)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.status_label)
 
-    def update_value(self, value: str, subtext: str = ""):
-        """Updates the card's content."""
-        self.lbl_value.setText(str(value))
-        if subtext:
-            self.lbl_sub.setText(subtext)
+    def update_metric(self, value: str, status: Optional[str] = None):
+        self.value_label.setText(value)
+        if status:
+            self.status_label.setText(status)
 
 
-class TrainingMonitor(QMainWindow):
-    """
-    Main Application Window.
-    """
-
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowTitle("VAE Training Monitor")
+        self.resize(CONFIG['WINDOW_WIDTH'], CONFIG['WINDOW_HEIGHT'])
+        self.setStyleSheet(APP_STYLESHEET)
 
-        # --- Data Attributes Initialization ---
-        self.epochs_train: List[int] = []
-        self.loss_train: List[float] = []
-        self.recon_train: List[float] = []
-        self.kl_train: List[float] = []
-        self.epochs_val: List[int] = []
-        self.loss_val: List[float] = []
+        self.metrics_history = {
+            'train_epochs': [], 'train_loss': [], 'train_recon': [], 'train_kl': [],
+            'val_epochs': [], 'val_loss': []
+        }
+        self.worker: Optional[LogParserThread] = None
+        self.log_buffer = deque()
 
-        self.latest_log_file: Optional[str] = None
-        self.worker: Optional[LogWorker] = None
+        self._setup_layout()
 
-        # --- UI Attributes Initialization (PEP 8) ---
-        self.status_label: Optional[QLabel] = None
-        self.log_display: Optional[QTextEdit] = None
+        # UI Refresh Timer for log console
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self._flush_log_buffer)
+        self.refresh_timer.start(50)
 
-        self.card_epoch: Optional[StatCard] = None
-        self.card_loss: Optional[StatCard] = None
-        self.card_val: Optional[StatCard] = None
-        self.card_kl: Optional[StatCard] = None
-        self.card_density: Optional[StatCard] = None
-
-        self.plot_loss: Optional[pg.PlotWidget] = None
-        self.plot_components: Optional[pg.PlotWidget] = None
-
-        self.curve_train_loss: Optional[pg.PlotDataItem] = None
-        self.curve_val_loss: Optional[pg.PlotDataItem] = None
-        self.curve_recon: Optional[pg.PlotDataItem] = None
-        self.curve_kl: Optional[pg.PlotDataItem] = None
-
-        # --- Setup ---
-        self.setWindowTitle("VAE TRAINING MONITOR")
-        self.resize(*CONFIG['WINDOW_SIZE'])
-        self.setStyleSheet(STYLE_SHEET)
-
-        self.init_ui()
-
-        # Auto-detect log file on startup
-        self.latest_log_file = self.find_latest_log()
-
-        if self.latest_log_file:
-            self.log_display.append(
-                f"<span style='color:{COLORS['accent_1']}'>Found latest log: {self.latest_log_file}</span>"
-            )
-            self.start_monitoring(self.latest_log_file)
+        # 1. Automatic detection of latest log on startup
+        latest_log = self._get_latest_log_path()
+        if latest_log:
+            self._start_monitoring(latest_log)
         else:
-            self.log_display.append(
-                f"<span style='color:{COLORS['text_dim']}'>"
-                f"No logs found in {os.path.abspath(CONFIG['LOG_DIR'])}. Waiting for file selection...</span>"
-            )
+            self.status_info.setText("Status: No logs found in " + CONFIG['LOG_DIR'])
 
-    @staticmethod
-    def find_latest_log() -> Optional[str]:
-        """
-        Finds the most recent log file based on CONFIG parameters.
-        """
-        search_path = os.path.join(CONFIG['LOG_DIR'], CONFIG['LOG_PATTERN'])
-        files = glob.glob(search_path)
-
-        if not files:
-            return None
-
-        # Sort by modification time, newest last
-        return max(files, key=os.path.getmtime)
-
-    def init_ui(self):
-        """Constructs the GUI layout."""
+    def _setup_layout(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(20)
         main_layout.setContentsMargins(25, 25, 25, 25)
+        main_layout.setSpacing(20)
 
-        # 1. HEADER
-        header_layout = QHBoxLayout()
+        # Header Section
+        header = QHBoxLayout()
+        title_container = QVBoxLayout()
+        main_title = QLabel("VAE TRAINING DASHBOARD")
+        main_title.setStyleSheet("font-size: 20px; font-weight: 800; letter-spacing: 2px;")
+        self.status_info = QLabel("Status: Idle")
+        self.status_info.setStyleSheet(f"color: {COLORS['text_secondary']};")
 
-        title = QLabel("VAE MONITOR // SYSTEM ACTIVE")
-        title.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 14pt; letter-spacing: 2px;")
+        title_container.addWidget(main_title)
+        title_container.addWidget(self.status_info)
 
-        self.status_label = QLabel("● NO SIGNAL")
-        self.status_label.setStyleSheet(f"color: {COLORS['text_dim']};")
+        btn_open = QPushButton("Open Log File")
+        btn_open.clicked.connect(self._on_select_file)
 
-        btn_load = QPushButton("SELECT SOURCE")
-        btn_load.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_load.clicked.connect(self.select_file)
+        header.addLayout(title_container)
+        header.addStretch()
+        header.addWidget(btn_open)
+        main_layout.addLayout(header)
 
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(self.status_label)
-        header_layout.addWidget(btn_load)
-        main_layout.addLayout(header_layout)
+        # Metrics Cards
+        cards_layout = QHBoxLayout()
+        self.card_epoch = MetricDisplayCard("Epoch", COLORS['info'])
+        self.card_loss = MetricDisplayCard("Total Loss", COLORS['success'])
+        self.card_recon = MetricDisplayCard("Reconstruction", COLORS['info'])
+        self.card_kl = MetricDisplayCard("KL Divergence", COLORS['error'])
 
-        # 2. METRICS ROW
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(15)
+        for card in [self.card_epoch, self.card_loss, self.card_recon, self.card_kl]:
+            cards_layout.addWidget(card)
+        main_layout.addLayout(cards_layout)
 
-        self.card_epoch = StatCard("Epoch", COLORS['accent_2'])
-        self.card_loss = StatCard("Train Loss", COLORS['accent_1'])
-        self.card_val = StatCard("Val Loss", COLORS['accent_2'])
-        self.card_kl = StatCard("KL Divergence", COLORS['accent_3'])
-        self.card_density = StatCard("Density", COLORS['text_main'])
-
-        stats_layout.addWidget(self.card_epoch)
-        stats_layout.addWidget(self.card_loss)
-        stats_layout.addWidget(self.card_val)
-        stats_layout.addWidget(self.card_kl)
-        stats_layout.addWidget(self.card_density)
-        main_layout.addLayout(stats_layout)
-
-        # 3. CHARTS AREA
-        charts_layout = QGridLayout()
-
-        # Global Chart Styling
+        # Plotting Area
         pg.setConfigOption('background', COLORS['surface'])
-        pg.setConfigOption('foreground', COLORS['text_dim'])
+        pg.setConfigOption('foreground', COLORS['text_secondary'])
         pg.setConfigOptions(antialias=True)
 
-        # --- Chart 1: Loss ---
-        self.plot_loss = pg.PlotWidget()
-        self._style_plot(self.plot_loss, "Total Loss (Log Scale)")
-        self.plot_loss.setLogMode(y=True)
+        plots_container = QHBoxLayout()
 
-        self.curve_train_loss = self.plot_loss.plot(
-            pen=pg.mkPen(COLORS['accent_1'], width=1), name='Train'
+        self.loss_plot = pg.PlotWidget(title="Loss Trends (Log Scale)")
+        self.loss_plot.setLogMode(y=True)
+        self.loss_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.curve_train_loss = self.loss_plot.plot(pen=pg.mkPen(COLORS['success'], width=2), name="Train")
+        self.curve_val_loss = self.loss_plot.plot(pen=pg.mkPen(COLORS['info'], width=2, style=Qt.PenStyle.DashLine),
+                                                  name="Val")
+
+        self.comp_plot = pg.PlotWidget(title="VAE Components")
+        self.comp_plot.setLogMode(y=True)
+        self.comp_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.curve_recon = self.comp_plot.plot(pen=pg.mkPen(COLORS['info'], width=2))
+        self.curve_kl = self.comp_plot.plot(pen=pg.mkPen(COLORS['error'], width=2))
+
+        plots_container.addWidget(self.loss_plot)
+        plots_container.addWidget(self.comp_plot)
+        main_layout.addLayout(plots_container, stretch=3)
+
+        # Console Section
+        self.console = QTextEdit()
+        self.console.setObjectName("LogConsole")
+        self.console.setReadOnly(True)
+        self.console.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)  # Prevents messy wrapping
+        main_layout.addWidget(self.console, stretch=1)
+
+    def _get_latest_log_path(self) -> Optional[str]:
+        if not os.path.exists(CONFIG['LOG_DIR']):
+            return None
+        pattern = os.path.join(CONFIG['LOG_DIR'], CONFIG['LOG_PATTERN'])
+        files = glob.glob(pattern)
+        return max(files, key=os.path.getmtime) if files else None
+
+    def _on_select_file(self):
+        # 2. Open file dialog in the configured LOG_DIR
+        initial_dir = CONFIG['LOG_DIR'] if os.path.exists(CONFIG['LOG_DIR']) else "."
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Training Log", initial_dir, "Log Files (*.log);;All Files (*)"
         )
-        self.curve_val_loss = self.plot_loss.plot(
-            pen=pg.mkPen(COLORS['accent_2'], width=1, style=Qt.PenStyle.DashLine), name='Val'
-        )
+        if file_path:
+            self._start_monitoring(file_path)
 
-        # --- Chart 2: Components ---
-        self.plot_components = pg.PlotWidget()
-        self._style_plot(self.plot_components, "Recon vs KL (Log Scale)")
-        self.plot_components.setLogMode(y=True)
-        self.plot_components.addLegend(offset=(10, 10), labelTextColor=COLORS['text_dim'])
-
-        self.curve_recon = self.plot_components.plot(
-            pen=pg.mkPen(COLORS['accent_2'], width=1), name='Recon'
-        )
-        self.curve_kl = self.plot_components.plot(
-            pen=pg.mkPen(COLORS['accent_3'], width=1), name='KL'
-        )
-
-        charts_layout.addWidget(self.plot_loss, 0, 0)
-        charts_layout.addWidget(self.plot_components, 0, 1)
-        main_layout.addLayout(charts_layout, stretch=3)
-
-        # 4. LOG CONSOLE
-        log_frame = QFrame()
-        log_layout = QVBoxLayout(log_frame)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        log_layout.setSpacing(0)
-
-        lbl_log_header = QLabel(" DATA STREAM")
-        lbl_log_header.setStyleSheet(
-            f"background-color: {COLORS['border']}; color: {COLORS['text_dim']}; "
-            f"padding: 5px 10px; font-size: 8pt; letter-spacing: 1px;"
-        )
-
-        self.log_display = QTextEdit()
-        self.log_display.setReadOnly(True)
-        self.log_display.setStyleSheet("border: none; padding: 10px;")
-
-        log_layout.addWidget(lbl_log_header)
-        log_layout.addWidget(self.log_display)
-        main_layout.addWidget(log_frame, stretch=2)
-
-    def _style_plot(self, plot_widget: pg.PlotWidget, title: str):
-        """Applies consistent styling to plot widgets."""
-        plot_widget.showGrid(x=True, y=True, alpha=0.1)
-        plot_widget.setTitle(title, color=COLORS['text_main'], size='9pt')
-        plot_widget.getAxis('left').setPen(COLORS['border'])
-        plot_widget.getAxis('bottom').setPen(COLORS['border'])
-        # Remove white borders
-        plot_widget.setBackground(COLORS['surface'])
-
-    def select_file(self):
-        """Opens file dialog for manual selection."""
-        fname, _ = QFileDialog.getOpenFileName(
-            self, 'Open Log File', CONFIG['LOG_DIR'], "Log files (*.log *.txt)"
-        )
-        if fname:
-            self.start_monitoring(fname)
-
-    def start_monitoring(self, path: str):
-        """Initializes the worker thread for the selected file."""
-        # Clear previous data
-        self.epochs_train.clear()
-        self.loss_train.clear()
-        self.recon_train.clear()
-        self.kl_train.clear()
-        self.epochs_val.clear()
-        self.loss_val.clear()
-        self.log_display.clear()
-
-        # Update UI status
-        filename = os.path.basename(path)
-        self.status_label.setText(f"● MONITORING: {filename}")
-        self.status_label.setStyleSheet(f"color: {COLORS['accent_1']};")
-
-        # Handle Threading
-        if self.worker is not None:
+    def _start_monitoring(self, path: str):
+        if self.worker:
             self.worker.stop()
             self.worker.wait()
 
-        self.worker = LogWorker(path)
-        self.worker.data_updated.connect(self.update_charts)
-        self.worker.log_line_added.connect(self.append_log)
+        for key in self.metrics_history:
+            self.metrics_history[key] = []
+        self.console.clear()
+
+        self.status_info.setText(f"Monitoring: {os.path.basename(path)}")
+
+        self.worker = LogParserThread(path)
+        self.worker.metrics_received.connect(self._on_metrics_update)
+        self.worker.log_received.connect(self.log_buffer.append)
         self.worker.start()
 
-    def update_charts(self, data: Dict):
-        """Receives parsed data and updates widgets."""
+    def _on_metrics_update(self, data: Dict[str, Any]):
         if data['type'] == 'train':
-            epoch = data['epoch']
-            loss = data['loss']
+            self.metrics_history['train_epochs'].append(data['epoch'])
+            self.metrics_history['train_loss'].append(data['loss'])
+            self.metrics_history['train_recon'].append(data['recon'])
+            self.metrics_history['train_kl'].append(data['kl'])
 
-            # Update Data Structures
-            self.epochs_train.append(epoch)
-            self.loss_train.append(loss)
-            self.recon_train.append(data['recon'])
-            self.kl_train.append(data['kl'])
+            self.card_epoch.update_metric(str(data['epoch']), "Active Training")
+            self.card_loss.update_metric(f"{data['loss']:.2f}")
+            self.card_recon.update_metric(f"{data['recon']:.2f}")
+            self.card_kl.update_metric(f"{data['kl']:.2f}")
 
-            # Update UI Cards
-            self.card_epoch.update_value(str(epoch))
-            self.card_loss.update_value(f"{loss:.1f}", "train loss")
-            self.card_kl.update_value(f"{data['kl']:.1f}", "divergence")
-
-            # Update Plots (Efficiently)
-            self.curve_train_loss.setData(self.epochs_train, self.loss_train)
-            self.curve_recon.setData(self.epochs_train, self.recon_train)
-            self.curve_kl.setData(self.epochs_train, self.kl_train)
+            self.curve_train_loss.setData(self.metrics_history['train_epochs'], self.metrics_history['train_loss'])
+            self.curve_recon.setData(self.metrics_history['train_epochs'], self.metrics_history['train_recon'])
+            self.curve_kl.setData(self.metrics_history['train_epochs'], self.metrics_history['train_kl'])
 
         elif data['type'] == 'val':
-            self.epochs_val.append(data['epoch'])
-            self.loss_val.append(data['val_loss'])
+            self.metrics_history['val_epochs'].append(data['epoch'])
+            self.metrics_history['val_loss'].append(data['loss'])
+            self.curve_val_loss.setData(self.metrics_history['val_epochs'], self.metrics_history['val_loss'])
 
-            self.card_val.update_value(f"{data['val_loss']:.1f}", f"epoch {data['epoch']}")
-            self.curve_val_loss.setData(self.epochs_val, self.loss_val)
+    def _flush_log_buffer(self):
+        """Fixes 'messy' logs by using clear block inserts and preventing line sticking."""
+        if not self.log_buffer:
+            return
 
-        elif data['type'] == 'sample':
-            self.card_density.update_value(f"{data['density']}%", "generated")
+        cursor = self.console.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
 
-    def append_log(self, line: str):
-        """Formats and appends a line to the log console."""
-        # Simple color coding for log levels
-        color = COLORS['text_dim']
-        if "ERROR" in line:
-            color = COLORS['accent_3']
-        elif "WARNING" in line:
-            color = "#ffd700"
-        elif "New best" in line:
-            color = COLORS['accent_1']
-        elif "Generated sample" in line:
-            color = "#d19a66"
-        elif "Train Loss" in line:
-            color = COLORS['text_main']
+        while self.log_buffer:
+            line = self.log_buffer.popleft()
+            color = COLORS['text_secondary']
 
-        # Split timestamp and message
-        parts = line.split(' - ', 1)
-        if len(parts) == 2:
-            timestamp, message = parts
-        else:
-            timestamp, message = "", line
+            # Simple color highlighting for visibility
+            if "Val Loss" in line or "New best" in line:
+                color = COLORS['success']
+            elif "Epoch" in line:
+                color = COLORS['info']
+            elif "WARNING" in line or "ERROR" in line:
+                color = COLORS['error']
 
-        html = (
-            f"<span style='color:{COLORS['text_dim']}'>{timestamp}</span> "
-            f"<span style='color:{COLORS['border']}'>|</span> "
-            f"<span style='color:{color}'>{message}</span>"
-        )
+            # Use append() or insertBlock() to ensure new lines are distinct
+            self.console.append(f"<span style='color:{color};'>{line}</span>")
 
-        self.log_display.moveCursor(QTextCursor.MoveOperation.End)
-        self.log_display.insertHtml(html + "<br>")
-        self.log_display.moveCursor(QTextCursor.MoveOperation.End)
+        # Memory management: truncate old lines
+        doc = self.console.document()
+        if doc.blockCount() > CONFIG['MAX_LOG_HISTORY']:
+            diff = doc.blockCount() - CONFIG['MAX_LOG_HISTORY']
+            cleanup_cursor = QTextCursor(doc.findBlockByNumber(0))
+            for _ in range(diff):
+                cleanup_cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+                cleanup_cursor.removeSelectedText()
+                cleanup_cursor.deleteChar()
+
+        self.console.verticalScrollBar().setValue(self.console.verticalScrollBar().maximum())
 
     def closeEvent(self, event):
-        """Cleanup on application exit."""
-        if self.worker is not None:
+        if self.worker:
             self.worker.stop()
             self.worker.wait()
         event.accept()
@@ -525,18 +385,11 @@ class TrainingMonitor(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle('Fusion')
 
-    # Enable High DPI support
     if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
         app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
-        app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
 
-    # Windows specific dark mode title bar
-    if os.name == 'nt':
-        sys.argv += ['-platform', 'windows:darkmode=1']
-        app.setStyle('Fusion')
-
-    window = TrainingMonitor()
+    window = MainWindow()
     window.show()
     sys.exit(app.exec())
